@@ -2948,6 +2948,15 @@ async function startServer() {
     };
   }
 
+  async function getAccountScopedInstance(req: AccountRequest, instanceId: any, columns = "*") {
+    const id = Number(instanceId);
+    if (!Number.isFinite(id)) return null;
+    const params: any[] = [id];
+    const accountFilter = req.user?.role === "super_admin" ? "" : " AND account_id = ?";
+    if (accountFilter) params.push(req.accountId);
+    return await get(`SELECT ${columns} FROM instances WHERE id = ?${accountFilter} AND deleted_at IS NULL`, params);
+  }
+
   async function getAccountPlan(accountId: number) {
     return await get(`
       SELECT
@@ -4147,14 +4156,14 @@ async function startServer() {
   });
 
   app.get("/api/whatsapp/instances/:id/webhooks", async (req: AccountRequest, res) => {
-    const inst = await get("SELECT * FROM instances WHERE id = ? AND account_id = ? AND deleted_at IS NULL", [req.params.id, req.accountId]);
+    const inst = await getAccountScopedInstance(req, req.params.id);
     if (!inst) return res.status(404).json({ error: "Instancia nao encontrada" });
-    const rows = await query("SELECT * FROM instance_webhooks WHERE account_id = ? AND instance_id = ? ORDER BY id DESC", [req.accountId, inst.id]);
+    const rows = await query("SELECT * FROM instance_webhooks WHERE account_id = ? AND instance_id = ? ORDER BY id DESC", [inst.account_id, inst.id]);
     res.json(rows.map(serializeWebhook));
   });
 
   app.post("/api/whatsapp/instances/:id/webhooks", async (req: AccountRequest, res) => {
-    const inst = await get("SELECT * FROM instances WHERE id = ? AND account_id = ? AND deleted_at IS NULL", [req.params.id, req.accountId]);
+    const inst = await getAccountScopedInstance(req, req.params.id);
     if (!inst) return res.status(404).json({ error: "Instancia nao encontrada" });
     if (!(await getAccountFeatureFlags(Number(inst.account_id))).webhook) return res.status(403).json({ error: "Webhook nao esta habilitado para esta conta" });
     const name = String(req.body?.name || "Webhook WooAPI").trim();
@@ -4166,17 +4175,17 @@ async function startServer() {
     const secret = randomToken("whsec");
     const info = await run(
       "INSERT INTO instance_webhooks (account_id, instance_id, name, url, secret, events, is_active, retry_enabled, max_attempts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      [req.accountId, inst.id, name, url, secret, JSON.stringify(events), 1, retryEnabled, maxAttempts]
+      [inst.account_id, inst.id, name, url, secret, JSON.stringify(events), 1, retryEnabled, maxAttempts]
     );
-    await audit(Number(req.accountId), Number(req.user?.userId), "webhook.created", { instanceId: inst.id, webhookId: info.lastInsertRowid });
+    await audit(Number(inst.account_id), Number(req.user?.userId), "webhook.created", { instanceId: inst.id, webhookId: info.lastInsertRowid });
     const row = await get("SELECT * FROM instance_webhooks WHERE id = ?", [info.lastInsertRowid]);
     res.json({ ...serializeWebhook(row), secret });
   });
 
   app.patch("/api/whatsapp/instances/:id/webhooks/:webhookId", async (req: AccountRequest, res) => {
-    const inst = await get("SELECT * FROM instances WHERE id = ? AND account_id = ? AND deleted_at IS NULL", [req.params.id, req.accountId]);
+    const inst = await getAccountScopedInstance(req, req.params.id);
     if (!inst) return res.status(404).json({ error: "Instancia nao encontrada" });
-    const row = await get("SELECT * FROM instance_webhooks WHERE id = ? AND account_id = ? AND instance_id = ?", [req.params.webhookId, req.accountId, inst.id]);
+    const row = await get("SELECT * FROM instance_webhooks WHERE id = ? AND account_id = ? AND instance_id = ?", [req.params.webhookId, inst.account_id, inst.id]);
     if (!row) return res.status(404).json({ error: "Webhook nao encontrado" });
     const url = req.body?.url === undefined ? row.url : String(req.body.url || "").trim();
     if (!isWebhookUrl(url)) return res.status(400).json({ error: "URL de webhook invalida" });
@@ -4202,25 +4211,25 @@ async function startServer() {
   });
 
   app.delete("/api/whatsapp/instances/:id/webhooks/:webhookId", async (req: AccountRequest, res) => {
-    const inst = await get("SELECT id FROM instances WHERE id = ? AND account_id = ? AND deleted_at IS NULL", [req.params.id, req.accountId]);
+    const inst = await getAccountScopedInstance(req, req.params.id, "id, account_id");
     if (!inst) return res.status(404).json({ error: "Instancia nao encontrada" });
-    const row = await get("SELECT id FROM instance_webhooks WHERE id = ? AND account_id = ? AND instance_id = ?", [req.params.webhookId, req.accountId, inst.id]);
+    const row = await get("SELECT id FROM instance_webhooks WHERE id = ? AND account_id = ? AND instance_id = ?", [req.params.webhookId, inst.account_id, inst.id]);
     if (!row) return res.status(404).json({ error: "Webhook nao encontrado" });
     await run("DELETE FROM instance_webhooks WHERE id = ?", [row.id]);
     res.json({ success: true, id: row.id });
   });
 
   app.post("/api/whatsapp/instances/:id/webhooks/:webhookId/test", async (req: AccountRequest, res) => {
-    const inst = await get("SELECT * FROM instances WHERE id = ? AND account_id = ? AND deleted_at IS NULL", [req.params.id, req.accountId]);
+    const inst = await getAccountScopedInstance(req, req.params.id);
     if (!inst) return res.status(404).json({ error: "Instancia nao encontrada" });
-    const row = await get("SELECT id FROM instance_webhooks WHERE id = ? AND account_id = ? AND instance_id = ?", [req.params.webhookId, req.accountId, inst.id]);
+    const row = await get("SELECT id FROM instance_webhooks WHERE id = ? AND account_id = ? AND instance_id = ?", [req.params.webhookId, inst.account_id, inst.id]);
     if (!row) return res.status(404).json({ error: "Webhook nao encontrado" });
     const result = await dispatchWebhook(Number(inst.id), "webhook.sent", { message: "Teste de webhook WooAPI", sample: req.body || {} }, { targetWebhookId: Number(row.id), bypassEventFilter: true });
     res.json({ success: true, ...result });
   });
 
   app.get("/api/whatsapp/instances/:id/webhook-logs", async (req: AccountRequest, res) => {
-    const inst = await get("SELECT id FROM instances WHERE id = ? AND account_id = ? AND deleted_at IS NULL", [req.params.id, req.accountId]);
+    const inst = await getAccountScopedInstance(req, req.params.id, "id, account_id");
     if (!inst) return res.status(404).json({ error: "Instancia nao encontrada" });
     const limit = Math.min(Math.max(Number(req.query.limit || 100), 1), 300);
     res.json((await query(`
@@ -4230,17 +4239,19 @@ async function startServer() {
       WHERE webhook_delivery_logs.account_id = ? AND webhook_delivery_logs.instance_id = ?
       ORDER BY webhook_delivery_logs.id DESC
       LIMIT ?
-    `, [req.accountId, inst.id, limit])).map((row) => ({ ...row, success: Number(row.success || 0) === 1 })));
+    `, [inst.account_id, inst.id, limit])).map((row) => ({ ...row, success: Number(row.success || 0) === 1 })));
   });
 
   app.get("/api/whatsapp/instances/:id/webhook-events", async (req: AccountRequest, res) => {
-    const inst = await get("SELECT id FROM instances WHERE id = ? AND account_id = ? AND deleted_at IS NULL", [req.params.id, req.accountId]);
+    const inst = await getAccountScopedInstance(req, req.params.id, "id, account_id");
     if (!inst) return res.status(404).json({ error: "Instancia nao encontrada" });
-    res.json(await query("SELECT id, event, status, response_status, error, attempts, retry_count, last_attempt_at, next_retry_at, delivered_at, created_at FROM webhook_events WHERE account_id = ? AND instance_id = ? ORDER BY id DESC LIMIT 100", [req.accountId, inst.id]));
+    res.json(await query("SELECT id, event, status, response_status, error, attempts, retry_count, last_attempt_at, next_retry_at, delivered_at, created_at FROM webhook_events WHERE account_id = ? AND instance_id = ? ORDER BY id DESC LIMIT 100", [inst.account_id, inst.id]));
   });
 
   app.post("/api/whatsapp/webhook-logs/:logId/retry", async (req: AccountRequest, res) => {
-    const row = await get("SELECT * FROM webhook_delivery_logs WHERE id = ? AND account_id = ?", [req.params.logId, req.accountId]);
+    const row = req.user?.role === "super_admin"
+      ? await get("SELECT * FROM webhook_delivery_logs WHERE id = ?", [req.params.logId])
+      : await get("SELECT * FROM webhook_delivery_logs WHERE id = ? AND account_id = ?", [req.params.logId, req.accountId]);
     if (!row) return res.status(404).json({ error: "Log de webhook nao encontrado" });
     if (!row.webhook_event_id) return res.status(400).json({ error: "Log sem evento associado" });
     const result = await enqueueWebhookDeliveryByEventId(Number(row.webhook_event_id));
