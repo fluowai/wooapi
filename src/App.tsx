@@ -1,15 +1,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { io, Socket } from "socket.io-client";
-import { 
-  Search, 
-  Users, 
-  MessageSquare, 
-  Settings, 
-  LayoutDashboard, 
-  Plus, 
-  Trash2, 
-  Send, 
-  CheckCircle2, 
+import {
+  Search,
+  Users,
+  MessageSquare,
+  Settings,
+  LayoutDashboard,
+  Plus,
+  Trash2,
+  Send,
+  CheckCircle2,
   XCircle,
   QrCode,
   RefreshCw,
@@ -26,8 +26,27 @@ import {
   CheckCircle,
   AlertCircle,
   Paperclip,
-  Image as ImageIcon
+  Image as ImageIcon,
+  ShieldCheck,
+  Activity,
+  BarChart3,
+  CreditCard,
+  Server,
+  Flag,
+  FileText,
+  Globe2,
+  LifeBuoy,
+  Database,
+  Webhook,
+  UserCog,
+  KeyRound,
+  Clock,
+  Bug,
+  Puzzle,
+  Loader2
 } from 'lucide-react';
+import InstanceTester from './components/InstanceTester';
+import IntegrationManager from './components/IntegrationManager';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -50,10 +69,29 @@ interface Lead {
 interface Instance {
   id: number;
   name: string;
-  engine?: 'baileys' | 'whatsmeow';
-  status: 'none' | 'qr' | 'connecting' | 'open' | 'close' | 'reconnecting';
+  engine?: 'wooapi';
+  status: 'created' | 'qr_pending' | 'connecting' | 'connected' | 'disconnected' | 'logged_out' | 'error' | 'blocked' | 'paused' | 'none' | 'qr' | 'open' | 'close' | 'reconnecting';
   qr?: string;
+  phone?: string;
   phoneConnected?: string;
+  phone_connected?: string;
+  jid?: string;
+  profileName?: string;
+  profile_name?: string;
+  profilePictureUrl?: string;
+  profile_picture_url?: string;
+  api_key?: string;
+  webhook_endpoint?: string;
+  webhook_secret?: string;
+  webhook?: {
+    webhooks_url?: string;
+    webhook_events_url?: string;
+    webhook_logs_url?: string;
+    webhook_test_url?: string;
+    configured_url?: string | null;
+    secret?: string | null;
+  };
+  operational_status?: string;
 }
 
 interface Conversation {
@@ -61,11 +99,17 @@ interface Conversation {
   instance_id: number;
   title: string;
   type: 'contact' | 'group';
+  remote_jid?: string;
   contact_phone?: string;
   group_jid?: string;
+  contact_profile_picture_url?: string;
   last_message?: string;
+  last_message_preview?: string;
   last_message_at: string;
   unread_count: number;
+  tags_json?: string;
+  status?: 'open' | 'pending' | 'closed';
+  assigned_to?: string;
 }
 
 interface Message {
@@ -132,9 +176,56 @@ interface Campaign {
 }
 
 interface WhatsAppStatus {
-  status: 'connecting' | 'open' | 'close' | 'qr' | 'none';
+  status: 'connecting' | 'connected' | 'disconnected' | 'qr_pending' | 'logged_out' | 'open' | 'close' | 'qr' | 'none';
   qr: string | null;
 }
+
+const isConnectedStatus = (status?: string) => status === 'connected' || status === 'open';
+const isQrStatus = (status?: string) => status === 'qr_pending' || status === 'qr';
+const isDisconnectedStatus = (status?: string) => ['created', 'disconnected', 'logged_out', 'none', 'close', 'error'].includes(String(status || ''));
+const findConnectedInstance = (instances: Instance[], preferredId?: number) =>
+  instances.find(inst => inst.id === preferredId && isConnectedStatus(inst.status)) ||
+  instances.find(inst => isConnectedStatus(inst.status));
+
+const instanceStatusLabel = (status?: string) => {
+  if (isConnectedStatus(status)) return 'Conectado';
+  if (isQrStatus(status)) return 'Aguardando QR';
+  if (status === 'connecting') return 'Conectando...';
+  if (status === 'reconnecting') return 'Reconectando...';
+  if (status === 'blocked') return 'Bloqueada';
+  if (status === 'paused') return 'Pausada';
+  if (status === 'error') return 'Erro';
+  return 'Desconectado';
+};
+
+const displayText = (value: any, fallback = '-') => {
+  if (value === null || value === undefined || value === '') return fallback;
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) return value.map((item) => displayText(item, '')).filter(Boolean).join(', ') || fallback;
+  if (typeof value === 'object') {
+    return value.name || value.label || value.title || value.email || value.id || fallback;
+  }
+  return String(value);
+};
+
+const parseList = (value: any): any[] => {
+  if (Array.isArray(value)) return value;
+  if (!value) return [];
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+};
+
+const displayNumber = (value: any, fallback = 0) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+};
 
 // --- Components ---
 
@@ -148,10 +239,10 @@ const SidebarItem = ({ icon: Icon, label, active, onClick, href }: { icon: any, 
       }
     }}
     className={cn(
-      "flex items-center gap-3 w-full px-4 py-3 rounded-xl transition-all duration-200 cursor-pointer no-underline",
-      active 
-        ? "bg-emerald-50 text-emerald-700 font-medium shadow-sm" 
-        : "text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+      "flex items-center gap-3 w-full px-4 py-3 rounded-md transition-all duration-200 cursor-pointer no-underline",
+      active
+        ? "bg-primary text-white font-semibold"
+        : "text-sidebar-item hover:bg-sidebar-item-active-bg hover:text-white"
     )}
   >
     <Icon size={20} />
@@ -160,7 +251,7 @@ const SidebarItem = ({ icon: Icon, label, active, onClick, href }: { icon: any, 
 );
 
 const Card = ({ children, className }: { children: React.ReactNode, className?: string }) => (
-  <div className={cn("bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden", className)}>
+  <div className={cn("bg-white border border-slate-200 rounded-md shadow-sm overflow-hidden", className)}>
     {children}
   </div>
 );
@@ -168,28 +259,47 @@ const Card = ({ children, className }: { children: React.ReactNode, className?: 
 // --- Main App ---
 
 // --- Super Admin Component ---
-const SuperAdmin = ({ apiFetch }: { apiFetch: any }) => {
+const SuperAdmin = ({ apiFetch, onImpersonate }: { apiFetch: any, onImpersonate: (session: any) => void }) => {
   const [accounts, setAccounts] = useState<any[]>([]);
   const [plans, setPlans] = useState<any[]>([]);
-  const [activeSubTab, setActiveSubTab] = useState<'accounts' | 'plans'>('accounts');
+  const [overview, setOverview] = useState<any>(null);
+  const [activeSubTab, setActiveSubTab] = useState<'accounts' | 'plans' | 'monitor'>('accounts');
   const [newPlan, setNewPlan] = useState({
     name: '',
     price: 0,
-    max_agents: 1,
-    max_campaigns: 1,
-    max_leads: 100,
+    max_agents: 0,
+    max_campaigns: 0,
+    max_leads: 0,
+    max_instances: 1,
+    max_users: 2,
+    max_messages: 5000,
+    max_client_accounts: 0,
     features: ''
+  });
+  const [newAccount, setNewAccount] = useState({
+    name: '',
+    owner_name: '',
+    owner_email: '',
+    password: '',
+    plan_id: '',
+    account_type: 'client',
+    instance_quota: 1,
+    max_client_accounts: 0
   });
 
   const fetchData = async () => {
     const accs = await apiFetch('/api/admin/accounts');
     const pls = await apiFetch('/api/admin/plans');
-    if (accs) setAccounts(accs);
-    if (pls) setPlans(pls);
+    const ovw = await apiFetch('/api/admin/overview');
+    if (Array.isArray(accs)) setAccounts(accs);
+    if (Array.isArray(pls)) setPlans(pls);
+    if (ovw) setOverview(ovw);
   };
 
   useEffect(() => {
     fetchData();
+    const interval = setInterval(fetchData, 15000);
+    return () => clearInterval(interval);
   }, []);
 
   const createPlan = async () => {
@@ -201,7 +311,17 @@ const SuperAdmin = ({ apiFetch }: { apiFetch: any }) => {
         features_json: newPlan.features.split(',').map(f => f.trim())
       })
     });
-    setNewPlan({ name: '', price: 0, max_agents: 1, max_campaigns: 1, max_leads: 100, features: '' });
+    setNewPlan({ name: '', price: 0, max_agents: 0, max_campaigns: 0, max_leads: 0, max_instances: 1, max_users: 2, max_messages: 5000, max_client_accounts: 0, features: '' });
+    fetchData();
+  };
+
+  const createAccount = async () => {
+    if (!newAccount.name || !newAccount.owner_name || !newAccount.owner_email || !newAccount.password) return;
+    await apiFetch('/api/admin/accounts', {
+      method: 'POST',
+      body: JSON.stringify({ ...newAccount, plan_id: newAccount.plan_id ? Number(newAccount.plan_id) : null })
+    });
+    setNewAccount({ name: '', owner_name: '', owner_email: '', password: '', plan_id: '', account_type: 'client', instance_quota: 1, max_client_accounts: 0 });
     fetchData();
   };
 
@@ -213,6 +333,32 @@ const SuperAdmin = ({ apiFetch }: { apiFetch: any }) => {
     fetchData();
   };
 
+  const updateAccountStatus = async (accountId: number, status: string) => {
+    await apiFetch(`/api/admin/accounts/${accountId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status })
+    });
+    fetchData();
+  };
+
+  const impersonateAccount = async (accountId: number) => {
+    const session = await apiFetch(`/api/admin/accounts/${accountId}/impersonate`, {
+      method: 'POST',
+      body: JSON.stringify({ reason: 'Suporte via Super Admin' })
+    });
+    if (session?.token) onImpersonate(session);
+  };
+
+  const statCards = [
+    ['Contas', overview?.accounts || 0],
+    ['Revendedores', overview?.resellers || 0],
+    ['Ativas', overview?.active_accounts || 0],
+    ['Instâncias', overview?.instances || 0],
+    ['Conectadas', overview?.connected_instances || 0],
+    ['Mensagens/mês', overview?.messages_month || 0],
+    ['Webhooks falhos', overview?.failed_webhooks || 0]
+  ];
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -222,69 +368,111 @@ const SuperAdmin = ({ apiFetch }: { apiFetch: any }) => {
       <header className="flex items-center justify-between">
         <div>
           <h2 className="text-3xl font-bold">Super Admin</h2>
-          <p className="text-slate-500">Gestão global de planos e inquilinos.</p>
+          <p className="text-slate-500">Gestão SaaS global: contas, planos, limites, suporte e monitoramento.</p>
         </div>
-        <div className="flex bg-white p-1 rounded-xl border border-slate-200">
-          <button 
-            onClick={() => setActiveSubTab('accounts')}
-            className={cn(
-              "px-4 py-2 text-xs font-bold rounded-lg transition-all",
-              activeSubTab === 'accounts' ? "bg-emerald-50 text-emerald-700" : "text-slate-500 hover:bg-slate-50"
-            )}
-          >
-            Contas (Inquilinos)
-          </button>
-          <button 
-            onClick={() => setActiveSubTab('plans')}
-            className={cn(
-              "px-4 py-2 text-xs font-bold rounded-lg transition-all",
-              activeSubTab === 'plans' ? "bg-emerald-50 text-emerald-700" : "text-slate-500 hover:bg-slate-50"
-            )}
-          >
-            Planos
-          </button>
+        <div className="flex bg-white p-1 rounded-md border border-slate-200">
+          {[
+            ['accounts', 'Contas'],
+            ['plans', 'Planos'],
+            ['monitor', 'Monitoramento']
+          ].map(([id, label]) => (
+            <button
+              key={id}
+              onClick={() => setActiveSubTab(id as any)}
+              className={cn(
+                "px-4 py-2 text-xs font-bold rounded-md transition-all",
+                activeSubTab === id ? "bg-primary text-white" : "text-slate-500 hover:bg-slate-50"
+              )}
+            >
+              {label}
+            </button>
+          ))}
         </div>
       </header>
 
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
+        {statCards.map(([label, value]) => (
+          <Card key={String(label)} className="p-4">
+            <p className="text-[10px] uppercase tracking-widest font-bold text-slate-400">{label}</p>
+            <p className="text-2xl font-black mt-1">{value}</p>
+          </Card>
+        ))}
+      </div>
+
       {activeSubTab === 'accounts' ? (
-        <Card>
-          <table className="w-full text-left">
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-100 text-slate-400 text-xs font-semibold uppercase tracking-wider">
-                <th className="py-4 px-6">Empresa</th>
-                <th className="py-4 px-6">Plano Atual</th>
-                <th className="py-4 px-6">Usuários</th>
-                <th className="py-4 px-6">Criado em</th>
-                <th className="py-4 px-6">Ações</th>
-              </tr>
-            </thead>
-            <tbody className="text-sm">
-              {accounts.map((acc) => (
-                <tr key={acc.id} className="border-b border-slate-50 last:border-0">
-                  <td className="py-4 px-6 font-bold">{acc.name}</td>
-                  <td className="py-4 px-6">
-                    <span className="px-2 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-bold">
-                      {acc.plan_name || 'Sem Plano'}
-                    </span>
-                  </td>
-                  <td className="py-4 px-6 text-slate-500">{acc.user_count}</td>
-                  <td className="py-4 px-6 text-slate-400">{new Date(acc.created_at).toLocaleDateString()}</td>
-                  <td className="py-4 px-6">
-                    <select 
-                      className="text-xs bg-slate-50 border border-slate-200 rounded p-1"
-                      value={acc.plan_id || ''}
-                      onChange={(e) => updateAccountPlan(acc.id, Number(e.target.value))}
-                    >
-                      <option value="">Alterar Plano...</option>
-                      {plans.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                    </select>
-                  </td>
+        <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
+          <Card className="p-5 h-fit">
+            <h3 className="text-lg font-bold mb-4">Nova Conta Cliente</h3>
+            <div className="space-y-3">
+              <input className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-md text-sm" placeholder="Empresa" value={newAccount.name} onChange={e => setNewAccount({ ...newAccount, name: e.target.value })} />
+              <input className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-md text-sm" placeholder="Nome do admin" value={newAccount.owner_name} onChange={e => setNewAccount({ ...newAccount, owner_name: e.target.value })} />
+              <input className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-md text-sm" placeholder="E-mail do admin" value={newAccount.owner_email} onChange={e => setNewAccount({ ...newAccount, owner_email: e.target.value })} />
+              <input className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-md text-sm" placeholder="Senha inicial" type="password" value={newAccount.password} onChange={e => setNewAccount({ ...newAccount, password: e.target.value })} />
+              <select className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-md text-sm" value={newAccount.plan_id} onChange={e => setNewAccount({ ...newAccount, plan_id: e.target.value })}>
+                <option value="">Plano...</option>
+                {plans.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+              <select className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-md text-sm" value={newAccount.account_type} onChange={e => setNewAccount({ ...newAccount, account_type: e.target.value })}>
+                <option value="client">Cliente final</option>
+                <option value="reseller">Revendedor</option>
+                <option value="owner">Dono do sistema</option>
+              </select>
+              <div className="grid grid-cols-2 gap-2">
+                <input className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-md text-sm" placeholder="Instâncias" type="number" value={newAccount.instance_quota} onChange={e => setNewAccount({ ...newAccount, instance_quota: Number(e.target.value) })} />
+                <input className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-md text-sm" placeholder="Clientes" type="number" value={newAccount.max_client_accounts} onChange={e => setNewAccount({ ...newAccount, max_client_accounts: Number(e.target.value) })} />
+              </div>
+              <button onClick={createAccount} className="w-full py-3 bg-primary text-white font-bold rounded-md">Criar cliente</button>
+            </div>
+          </Card>
+
+          <Card className="xl:col-span-3">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-100 text-slate-400 text-xs font-semibold uppercase tracking-wider">
+                  <th className="py-4 px-6">Empresa</th>
+                  <th className="py-4 px-6">Plano</th>
+                  <th className="py-4 px-6">Uso</th>
+                  <th className="py-4 px-6">Status</th>
+                  <th className="py-4 px-6">Ações</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </Card>
-      ) : (
+              </thead>
+              <tbody className="text-sm">
+                {accounts.map((acc) => (
+                  <tr key={acc.id} className="border-b border-slate-50 last:border-0">
+                    <td className="py-4 px-6">
+                      <p className="font-bold">{acc.name}</p>
+                      <p className="text-xs text-slate-400">{acc.owner_email || `Conta #${acc.id}`}</p>
+                    </td>
+                    <td className="py-4 px-6">
+                      <select className="text-xs bg-slate-50 border border-slate-200 rounded p-1" value={acc.plan_id || ''} onChange={(e) => updateAccountPlan(acc.id, Number(e.target.value))}>
+                        <option value="">Sem plano</option>
+                        {plans.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      </select>
+                    </td>
+                    <td className="py-4 px-6 text-xs text-slate-500">
+                      <p>Instâncias: {acc.usage?.instances || 0}/{acc.max_instances || '-'}</p>
+                      <p>Usuários: {acc.usage?.users || 0}/{acc.max_users || '-'}</p>
+                      <p>Mensagens: {acc.usage?.messages || 0}/{acc.max_messages || '-'}</p>
+                    </td>
+                    <td className="py-4 px-6">
+                      <select className="text-xs bg-slate-50 border border-slate-200 rounded p-1" value={acc.status || 'active'} onChange={(e) => updateAccountStatus(acc.id, e.target.value)}>
+                        <option value="active">Ativa</option>
+                        <option value="paused">Pausada</option>
+                        <option value="blocked">Bloqueada</option>
+                      </select>
+                    </td>
+                    <td className="py-4 px-6">
+                      <button onClick={() => impersonateAccount(acc.id)} className="px-3 py-2 bg-primary text-white rounded-md text-xs font-bold">
+                        Acessar conta
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Card>
+        </div>
+      ) : activeSubTab === 'plans' ? (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <Card className="p-6 h-fit">
             <h3 className="text-lg font-bold mb-4">Novo Plano</h3>
@@ -309,6 +497,33 @@ const SuperAdmin = ({ apiFetch }: { apiFetch: any }) => {
                 />
               </div>
               <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Instâncias</label>
+                  <input
+                    type="number"
+                    className="w-full px-2 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none text-xs"
+                    value={newPlan.max_instances}
+                    onChange={(e) => setNewPlan({ ...newPlan, max_instances: Number(e.target.value) })}
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Usuários</label>
+                  <input
+                    type="number"
+                    className="w-full px-2 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none text-xs"
+                    value={newPlan.max_users}
+                    onChange={(e) => setNewPlan({ ...newPlan, max_users: Number(e.target.value) })}
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Mensagens</label>
+                  <input
+                    type="number"
+                    className="w-full px-2 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none text-xs"
+                    value={newPlan.max_messages}
+                    onChange={(e) => setNewPlan({ ...newPlan, max_messages: Number(e.target.value) })}
+                  />
+                </div>
                 <div>
                   <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Agentes</label>
                   <input
@@ -336,6 +551,15 @@ const SuperAdmin = ({ apiFetch }: { apiFetch: any }) => {
                     onChange={(e) => setNewPlan({ ...newPlan, max_leads: Number(e.target.value) })}
                   />
                 </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Clientes</label>
+                  <input
+                    type="number"
+                    className="w-full px-2 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none text-xs"
+                    value={newPlan.max_client_accounts}
+                    onChange={(e) => setNewPlan({ ...newPlan, max_client_accounts: Number(e.target.value) })}
+                  />
+                </div>
               </div>
               <div>
                 <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Recursos (separados por vírgula)</label>
@@ -349,7 +573,7 @@ const SuperAdmin = ({ apiFetch }: { apiFetch: any }) => {
               </div>
               <button
                 onClick={createPlan}
-                className="w-full py-3 bg-emerald-500 text-white font-bold rounded-xl hover:bg-emerald-600 transition-all flex items-center justify-center gap-2"
+                className="w-full py-3 bg-primary text-white font-bold rounded-xl hover:bg-primary/90 transition-all flex items-center justify-center gap-2"
               >
                 <Plus size={20} />
                 Criar Plano
@@ -359,10 +583,10 @@ const SuperAdmin = ({ apiFetch }: { apiFetch: any }) => {
 
           <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
             {plans.map((plan) => (
-              <Card key={plan.id} className="p-6 border-t-4 border-t-emerald-500">
+              <Card key={plan.id} className="p-6 border-t-4 border-t-primary">
                 <div className="flex justify-between items-start mb-4">
                   <h4 className="text-xl font-bold">{plan.name}</h4>
-                  <span className="text-2xl font-black text-emerald-600">R$ {plan.price}</span>
+                  <span className="text-2xl font-black text-primary">R$ {plan.price}</span>
                 </div>
                 <div className="space-y-2 mb-6">
                   <p className="text-xs text-slate-500 flex justify-between">
@@ -374,11 +598,23 @@ const SuperAdmin = ({ apiFetch }: { apiFetch: any }) => {
                   <p className="text-xs text-slate-500 flex justify-between">
                     <span>Leads:</span> <span className="font-bold text-slate-700">{plan.max_leads}</span>
                   </p>
+                  <p className="text-xs text-slate-500 flex justify-between">
+                    <span>Instâncias:</span> <span className="font-bold text-slate-700">{plan.max_instances}</span>
+                  </p>
+                  <p className="text-xs text-slate-500 flex justify-between">
+                    <span>Usuários:</span> <span className="font-bold text-slate-700">{plan.max_users}</span>
+                  </p>
+                  <p className="text-xs text-slate-500 flex justify-between">
+                    <span>Mensagens/mês:</span> <span className="font-bold text-slate-700">{plan.max_messages}</span>
+                  </p>
+                  <p className="text-xs text-slate-500 flex justify-between">
+                    <span>Clientes filhos:</span> <span className="font-bold text-slate-700">{plan.max_client_accounts || 0}</span>
+                  </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {JSON.parse(plan.features_json || '[]').map((f: string, i: number) => (
+                  {parseList(plan.features_json).map((f: any, i: number) => (
                     <span key={i} className="px-2 py-1 bg-slate-100 text-slate-600 rounded text-[10px] font-medium">
-                      {f}
+                      {displayText(f, 'recurso')}
                     </span>
                   ))}
                 </div>
@@ -386,20 +622,1076 @@ const SuperAdmin = ({ apiFetch }: { apiFetch: any }) => {
             ))}
           </div>
         </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <Card className="p-6">
+            <h3 className="text-lg font-bold mb-4">Saúde do SaaS</h3>
+            <div className="space-y-3 text-sm">
+              <p className="flex justify-between"><span className="text-slate-500">API Node</span><span className="font-bold text-primary">Online</span></p>
+              <p className="flex justify-between"><span className="text-slate-500">WooAPI Core</span><span className="font-bold">{overview?.connected_instances ? 'Ativo' : 'Monitorar'}</span></p>
+              <p className="flex justify-between"><span className="text-slate-500">Webhooks falhos</span><span className="font-bold">{overview?.failed_webhooks || 0}</span></p>
+            </div>
+          </Card>
+          <Card className="p-6 lg:col-span-2">
+            <h3 className="text-lg font-bold mb-4">Contas próximas de limite</h3>
+            <div className="space-y-3">
+              {accounts.filter(acc => (acc.usage?.instances || 0) >= (acc.max_instances || 999999)).map(acc => (
+                <div key={acc.id} className="flex items-center justify-between p-3 bg-slate-50 border border-slate-200 rounded-md">
+                  <div>
+                    <p className="font-bold">{acc.name}</p>
+                    <p className="text-xs text-slate-500">Instâncias: {acc.usage?.instances}/{acc.max_instances}</p>
+                  </div>
+                  <button onClick={() => impersonateAccount(acc.id)} className="px-3 py-2 bg-primary text-white rounded-md text-xs font-bold">Acessar</button>
+                </div>
+              ))}
+              {!accounts.some(acc => (acc.usage?.instances || 0) >= (acc.max_instances || 999999)) && (
+                <p className="text-sm text-slate-500">Nenhuma conta estourando limite agora.</p>
+              )}
+            </div>
+          </Card>
+        </div>
       )}
     </motion.div>
   );
 };
 
+const SuperAdminPanel = ({ apiFetch, onImpersonate, onLogout, onBackToAccount, authUser }: { apiFetch: any, onImpersonate: (session: any) => void, onLogout: () => void, onBackToAccount?: () => void, authUser?: any }) => {
+  const [accounts, setAccounts] = useState<any[]>([]);
+  const [plans, setPlans] = useState<any[]>([]);
+  const [overview, setOverview] = useState<any>(null);
+  const [wooapiMonitor, setWooapiMonitor] = useState<any>(null);
+  const [activeSubTab, setActiveSubTab] = useState<'dashboard' | 'wooapi' | 'accounts' | 'plans' | 'monitor' | 'webhooks' | 'audit' | 'settings'>('dashboard');
+  const [newPlan, setNewPlan] = useState({
+    name: '',
+    price: 0,
+    max_agents: 0,
+    max_campaigns: 0,
+    max_leads: 0,
+    max_instances: 1,
+    max_users: 2,
+    max_messages: 5000,
+    max_client_accounts: 0,
+    features: ''
+  });
+  const [newAccount, setNewAccount] = useState({
+    name: '',
+    owner_name: '',
+    owner_email: '',
+    password: '',
+    plan_id: '',
+    account_type: 'client',
+    instance_quota: 1,
+    max_client_accounts: 0
+  });
+
+  const fetchData = async () => {
+    const accs = await apiFetch('/api/admin/accounts');
+    const pls = await apiFetch('/api/admin/plans');
+    const ovw = await apiFetch('/api/admin/overview');
+    const monitor = await apiFetch('/api/admin/wooapi-monitor');
+    if (Array.isArray(accs)) setAccounts(accs);
+    if (Array.isArray(pls)) setPlans(pls);
+    if (ovw) setOverview(ovw);
+    if (monitor) setWooapiMonitor(monitor);
+  };
+
+  useEffect(() => {
+    fetchData();
+    const interval = window.setInterval(fetchData, 7000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  const createPlan = async () => {
+    if (!newPlan.name) return;
+    await apiFetch('/api/admin/plans', {
+      method: 'POST',
+      body: JSON.stringify({
+        ...newPlan,
+        features_json: newPlan.features.split(',').map((f) => f.trim()).filter(Boolean)
+      })
+    });
+    setNewPlan({ name: '', price: 0, max_agents: 0, max_campaigns: 0, max_leads: 0, max_instances: 1, max_users: 2, max_messages: 5000, max_client_accounts: 0, features: '' });
+    fetchData();
+  };
+
+  const createAccount = async () => {
+    if (!newAccount.name || !newAccount.owner_name || !newAccount.owner_email || !newAccount.password) return;
+    await apiFetch('/api/admin/accounts', {
+      method: 'POST',
+      body: JSON.stringify({ ...newAccount, plan_id: newAccount.plan_id ? Number(newAccount.plan_id) : null })
+    });
+    setNewAccount({ name: '', owner_name: '', owner_email: '', password: '', plan_id: '', account_type: 'client', instance_quota: 1, max_client_accounts: 0 });
+    fetchData();
+  };
+
+  const updateAccountPlan = async (accountId: number, planId: number | null) => {
+    await apiFetch(`/api/admin/accounts/${accountId}/plan`, {
+      method: 'PATCH',
+      body: JSON.stringify({ plan_id: planId })
+    });
+    fetchData();
+  };
+
+  const updateAccountStatus = async (accountId: number, status: string) => {
+    await apiFetch(`/api/admin/accounts/${accountId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status })
+    });
+    fetchData();
+  };
+
+  const impersonateAccount = async (accountId: number) => {
+    const session = await apiFetch(`/api/admin/accounts/${accountId}/impersonate`, {
+      method: 'POST',
+      body: JSON.stringify({ reason: 'Suporte via Super Admin' })
+    });
+    if (session?.token) onImpersonate(session);
+  };
+
+  const formatNumber = (value: any) => new Intl.NumberFormat('pt-BR').format(Number(value || 0));
+  const formatCurrency = (value: any) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value || 0));
+  const activeAccounts = Number(overview?.active_accounts || 0);
+  const totalAccounts = Number(overview?.accounts || accounts.length || 0);
+  const connectedInstances = Number(overview?.connected_instances || 0);
+  const totalInstances = Number(overview?.instances || 0);
+  const failedWebhooks = Number(overview?.failed_webhooks || 0);
+  const estimatedRevenue = plans.reduce((total, plan) => {
+    const subscribers = accounts.filter((account) => Number(account.plan_id) === Number(plan.id)).length;
+    return total + subscribers * Number(plan.price || 0);
+  }, 0);
+  const nearLimitAccounts = accounts.filter(acc => Number(acc.usage?.instances || 0) >= Number(acc.max_instances || 999999));
+  const latestAccounts = accounts.slice(0, 5);
+  const serverStatus = failedWebhooks > 0 ? 'Requer Atencao' : 'Operacional';
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (wooapiMonitor?.generated_at) {
+      setLastUpdated(wooapiMonitor.generated_at);
+    }
+  }, [wooapiMonitor?.generated_at]);
+  const wooMetrics = wooapiMonitor?.metrics || {};
+  const wooQueues = wooapiMonitor?.queues || [];
+  const wooInstances = wooapiMonitor?.instances || [];
+  const wooWebhooks = wooapiMonitor?.webhooks || [];
+  const wooWebhookLogs = wooapiMonitor?.recent_webhook_logs || [];
+  const wooAlerts = wooapiMonitor?.alerts || [];
+  const wooLiveLogs = wooapiMonitor?.live_logs || [];
+  const wooSupportTickets = wooapiMonitor?.support_tickets || [];
+  const wooNoc = wooapiMonitor?.noc || {};
+
+  const navItems = [
+    { id: 'dashboard', label: 'Visao Geral', icon: LayoutDashboard },
+    { id: 'wooapi', label: 'Saude da Plataforma', icon: Activity },
+    { id: 'accounts', label: 'Clientes', icon: Building2 },
+    { id: 'plans', label: 'Planos', icon: CreditCard },
+    { id: 'monitor', label: 'Monitoramento', icon: Activity },
+    { id: 'webhooks', label: 'Webhooks', icon: Webhook },
+    { id: 'audit', label: 'Auditoria', icon: FileText },
+    { id: 'settings', label: 'Configuracoes', icon: Settings }
+  ] as const;
+
+  const statCards = [
+    { label: 'Total de Clientes', value: formatNumber(totalAccounts), icon: Building2, tone: 'bg-blue-600', note: `${formatNumber(activeAccounts)} ativos` },
+    { label: 'Assinaturas Ativas', value: formatNumber(activeAccounts), icon: Users, tone: 'bg-emerald-500', note: `${formatNumber(overview?.resellers || 0)} revendedores` },
+    { label: 'Receita Mensal Est.', value: formatCurrency(estimatedRevenue), icon: CreditCard, tone: 'bg-violet-500', note: 'baseada nos planos' },
+    { label: 'Status do Servidor', value: serverStatus, icon: Server, tone: failedWebhooks > 0 ? 'bg-amber-500' : 'bg-emerald-600', note: `${formatNumber(connectedInstances)}/${formatNumber(totalInstances)} instancias online` }
+  ];
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="min-h-[calc(100vh-2rem)] overflow-hidden rounded-md border border-slate-200 bg-slate-100 shadow-sm lg:grid lg:grid-cols-[248px_1fr]"
+    >
+      <aside className="flex flex-col bg-[#101827] text-white">
+        <div className="flex h-20 items-center gap-3 border-b border-white/10 px-6">
+          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-red-600">
+            <ShieldCheck size={20} />
+          </div>
+          <div>
+            <p className="text-lg font-black text-red-400">Console Global</p>
+            <p className="text-[11px] font-semibold text-white/45">Super Admin WooAPI</p>
+          </div>
+        </div>
+
+        <nav className="flex-1 space-y-1 px-4 py-5">
+          {navItems.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              onClick={() => setActiveSubTab(id)}
+              className={cn(
+                "flex w-full items-center gap-3 rounded-md px-3 py-3 text-left text-sm font-bold transition-all",
+                activeSubTab === id ? "bg-red-600 text-white shadow-lg shadow-red-950/20" : "text-slate-300 hover:bg-white/10 hover:text-white"
+              )}
+            >
+              <Icon size={18} />
+              {label}
+            </button>
+          ))}
+        </nav>
+
+        <div className="border-t border-white/10 p-5">
+          {onBackToAccount && (
+            <button
+              onClick={onBackToAccount}
+              className="mb-4 flex w-full items-center gap-2 rounded-md bg-white/10 px-3 py-2 text-sm font-bold text-white transition-colors hover:bg-white/15"
+            >
+              <LayoutDashboard size={16} />
+              Voltar ao Painel da Conta
+            </button>
+          )}
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-600 text-sm font-black">S</div>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-black">{displayText(authUser?.name, 'Dono do Sistema')}</p>
+              <p className="truncate text-xs text-slate-400">{displayText(authUser?.email, 'super admin')}</p>
+            </div>
+          </div>
+          <button
+            onClick={onLogout}
+            className="mt-5 flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-bold text-slate-300 transition-colors hover:bg-white/10 hover:text-white"
+          >
+            <LogOut size={16} />
+            Sair
+          </button>
+        </div>
+      </aside>
+
+      <section className="min-w-0 bg-[#f4f5f7] p-5 lg:p-7">
+        <header className="mb-7 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-2xl font-black text-slate-950">Console Global WooAPI</h2>
+            <p className="text-sm text-slate-500">Ambiente exclusivo do super admin para clientes, planos, instancias, webhooks e suporte.</p>
+          </div>
+          <div className={cn("flex w-fit items-center gap-2 rounded-md px-3 py-2 text-xs font-black", failedWebhooks > 0 ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700")}>
+            <span className="h-2 w-2 rounded-full bg-current" />
+            {serverStatus}
+          </div>
+        </header>
+
+        <div className="mb-8 grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4">
+          {statCards.map(({ label, value, icon: Icon, tone, note }) => (
+            <Card key={label} className="p-6">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-500">{label}</p>
+                  <p className="mt-2 truncate text-2xl font-black text-slate-950">{value}</p>
+                  <p className="mt-2 text-xs font-semibold text-slate-400">{note}</p>
+                </div>
+                <div className={cn("flex h-12 w-12 shrink-0 items-center justify-center rounded-md text-white shadow-lg", tone)}>
+                  <Icon size={23} />
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+
+        {activeSubTab === 'dashboard' && (
+          <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+            <Card className="p-6">
+              <div className="mb-5 flex items-center gap-3">
+                <Activity size={20} className="text-slate-400" />
+                <h3 className="text-lg font-black text-slate-950">Atividade Recente</h3>
+              </div>
+              <div className="space-y-4">
+                {latestAccounts.length > 0 ? latestAccounts.map((acc) => (
+                  <div key={acc.id} className="flex items-center justify-between rounded-md border border-slate-100 bg-slate-50 px-4 py-3">
+                    <div>
+                      <p className="font-bold text-slate-900">{displayText(acc.name, `Conta #${acc.id}`)}</p>
+                      <p className="text-xs text-slate-500">{displayText(acc.owner_email, `Conta #${acc.id}`)}</p>
+                    </div>
+                    <span className={cn("rounded-md px-2 py-1 text-[11px] font-black", acc.status === 'active' ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700")}>
+                      {acc.status || 'active'}
+                    </span>
+                  </div>
+                )) : (
+                  <p className="py-10 text-center text-sm text-slate-500">Nenhuma atividade recente registrada.</p>
+                )}
+              </div>
+            </Card>
+
+            <Card className="p-6">
+              <div className="mb-5 flex items-center gap-3">
+                <AlertCircle size={20} className="text-slate-400" />
+                <h3 className="text-lg font-black text-slate-950">Alertas do Sistema</h3>
+              </div>
+              <div className="space-y-4">
+                <div className="rounded-md border border-slate-100 bg-slate-50 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="font-bold text-slate-900">Webhooks falhos</p>
+                    <span className={cn("rounded-md px-2 py-1 text-xs font-black", failedWebhooks > 0 ? "bg-red-50 text-red-600" : "bg-emerald-50 text-emerald-700")}>{formatNumber(failedWebhooks)}</span>
+                  </div>
+                  <p className="mt-2 text-sm text-slate-500">{failedWebhooks > 0 ? 'Verifique entregas pendentes e clientes afetados.' : 'Sistema operando normalmente.'}</p>
+                </div>
+                <div className="rounded-md border border-slate-100 bg-slate-50 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="font-bold text-slate-900">Instancias conectadas</p>
+                    <span className="rounded-md bg-blue-50 px-2 py-1 text-xs font-black text-blue-700">{formatNumber(connectedInstances)}/{formatNumber(totalInstances)}</span>
+                  </div>
+                  <p className="mt-2 text-sm text-slate-500">Acompanhe quedas de sessao e clientes sem conexao ativa.</p>
+                </div>
+              </div>
+            </Card>
+          </div>
+        )}
+
+        {activeSubTab === 'wooapi' && (
+          <div className="space-y-5">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h2 className="text-2xl font-black text-slate-950">Central de Saude WooAPI</h2>
+                  <p className="text-sm text-slate-500">Visao operacional de filas, webhooks, logs, instancias e alertas.</p>
+                  {lastUpdated && <p className="mt-1 text-[10px] font-semibold text-slate-400">Ultima atualizacao: {new Date(lastUpdated).toLocaleString('pt-BR')}</p>}
+                </div>
+                <button onClick={fetchData} className="flex items-center justify-center gap-2 rounded-md bg-slate-900 px-4 py-2.5 text-sm font-black text-white shadow-md transition-all hover:bg-red-600 hover:shadow-lg active:scale-95">
+                  <RefreshCw size={16} />
+                  Atualizar
+                </button>
+              </div>
+
+            {wooapiMonitor?.generated_at && (
+              <Card className={cn(
+                "overflow-hidden border-2",
+                wooNoc.severity === 'critical' ? "border-rose-300 bg-rose-50" :
+                wooNoc.severity === 'warning' ? "border-amber-300 bg-amber-50" :
+                "border-emerald-300 bg-emerald-50"
+              )}>
+                <div className="grid grid-cols-1 gap-0 xl:grid-cols-[1.1fr_1fr_1fr]">
+                  <div className="border-b border-white/70 p-5 xl:border-b-0 xl:border-r">
+                    <div className="flex items-center gap-3">
+                      <span className={cn(
+                        "h-3 w-3 rounded-full",
+                        wooNoc.severity === 'critical' ? "bg-rose-600 animate-pulse" :
+                        wooNoc.severity === 'warning' ? "bg-amber-500 animate-pulse" :
+                        "bg-emerald-600"
+                      )} />
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">NOC Command Center</p>
+                    </div>
+                    <h3 className="mt-2 text-2xl font-black text-slate-950">{wooNoc.headline || 'Operacao nominal'}</h3>
+                    <div className="mt-4 grid grid-cols-3 gap-2">
+                      <div className="rounded-md bg-white/70 p-3">
+                        <p className="text-[10px] font-black uppercase text-slate-400">Criticas</p>
+                        <p className="text-xl font-black text-slate-950">{formatNumber(wooNoc.critical_count || 0)}</p>
+                      </div>
+                      <div className="rounded-md bg-white/70 p-3">
+                        <p className="text-[10px] font-black uppercase text-slate-400">Risco</p>
+                        <p className="text-xl font-black text-slate-950">{formatNumber(wooNoc.degraded_count || 0)}</p>
+                      </div>
+                      <div className="rounded-md bg-white/70 p-3">
+                        <p className="text-[10px] font-black uppercase text-slate-400">Webhook OK</p>
+                        <p className="text-xl font-black text-slate-950">{formatNumber(wooNoc.webhook_success_rate ?? 100)}%</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="border-b border-white/70 p-5 xl:border-b-0 xl:border-r">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Acoes preventivas</p>
+                    <div className="mt-3 space-y-2">
+                      {(wooNoc.next_actions || []).slice(0, 5).map((action: string, index: number) => (
+                        <div key={index} className="flex items-start gap-2 rounded-md bg-white/70 px-3 py-2 text-xs font-bold text-slate-700">
+                          <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-400" />
+                          <span>{action}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="p-5">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Watchlist de instancias</p>
+                    <div className="mt-3 space-y-2">
+                      {(wooNoc.watchlist || []).slice(0, 5).map((inst: any) => (
+                        <div key={inst.id} className="flex items-center justify-between gap-3 rounded-md bg-white/70 px-3 py-2">
+                          <div className="min-w-0">
+                            <p className="truncate text-xs font-black text-slate-900">{displayText(inst.name, `Instancia #${inst.id}`)}</p>
+                            <p className="truncate text-[10px] text-slate-500">{displayText(inst.account_name, `Conta #${inst.account_id}`)} · {inst.recommended_action}</p>
+                          </div>
+                          <span className={cn(
+                            "shrink-0 rounded px-2 py-1 text-[10px] font-black",
+                            Number(inst.risk_score || 0) >= 70 ? "bg-rose-100 text-rose-700" :
+                            Number(inst.risk_score || 0) >= 35 ? "bg-amber-100 text-amber-700" :
+                            "bg-slate-100 text-slate-600"
+                          )}>{formatNumber(inst.risk_score || 0)}</span>
+                        </div>
+                      ))}
+                      {(!wooNoc.watchlist || wooNoc.watchlist.length === 0) && (
+                        <div className="rounded-md bg-white/70 px-3 py-6 text-center text-xs font-bold text-slate-500">Nenhuma instancia em risco agora.</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            )}
+
+            {wooapiMonitor?.generated_at && (
+              <div className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="flex items-center gap-2">
+                  <span className={cn("inline-block h-3 w-3 rounded-full", wooMetrics.instances_offline > 0 ? "bg-amber-500 animate-pulse" : "bg-emerald-500")} />
+                  <span className="text-sm font-black text-slate-700">Plataforma</span>
+                </div>
+                <div className="flex flex-wrap gap-3 text-xs">
+                  <span className="rounded-md bg-emerald-50 px-2 py-1 font-bold text-emerald-700">{formatNumber(wooMetrics.instances_online)} online</span>
+                  {wooMetrics.instances_offline > 0 && <span className="rounded-md bg-red-50 px-2 py-1 font-bold text-red-700">{formatNumber(wooMetrics.instances_offline)} offline</span>}
+                  {wooMetrics.instances_unstable > 0 && <span className="rounded-md bg-amber-50 px-2 py-1 font-bold text-amber-700">{formatNumber(wooMetrics.instances_unstable)} instaveis</span>}
+                  <span className="rounded-md bg-blue-50 px-2 py-1 font-bold text-blue-700">{formatNumber(wooMetrics.messages_24h || 0)} msgs 24h</span>
+                  {wooMetrics.webhook_failures_24h > 0 && <span className="rounded-md bg-rose-50 px-2 py-1 font-bold text-rose-700">{formatNumber(wooMetrics.webhook_failures_24h)} falhas webhook</span>}
+                  <span className="rounded-md bg-purple-50 px-2 py-1 font-bold text-purple-700">{formatNumber(wooMetrics.open_alerts || 0)} alertas</span>
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
+              {[
+                { label: 'Instancias online', value: wooMetrics.instances_online, icon: CheckCircle2, tone: 'text-emerald-600', bg: 'bg-emerald-50 border-emerald-200' },
+                { label: 'Instancias offline', value: wooMetrics.instances_offline, icon: XCircle, tone: 'text-red-600', bg: 'bg-red-50 border-red-200' },
+                { label: 'Instancias instaveis', value: wooMetrics.instances_unstable, icon: AlertCircle, tone: 'text-amber-600', bg: 'bg-amber-50 border-amber-200' },
+                { label: 'Jobs pendentes', value: wooMetrics.pending_jobs, icon: Server, tone: 'text-blue-600', bg: 'bg-blue-50 border-blue-200' },
+                { label: 'Alertas abertos', value: wooAlerts.length || wooMetrics.open_alerts, icon: ShieldCheck, tone: 'text-red-600', bg: 'bg-rose-50 border-rose-200' }
+              ].map(({ label, value, icon: Icon, tone, bg }) => (
+                <Card key={label} className={cn("border-2 p-4 transition-all hover:shadow-md", bg)}>
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">{label}</p>
+                    <Icon size={20} className={tone} />
+                  </div>
+                  <p className="mt-2 text-3xl font-black text-slate-950">{formatNumber(value || 0)}</p>
+                </Card>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {[
+                { label: 'Mensagens 24h', value: wooMetrics.messages_24h, icon: MessageSquare },
+                { label: 'Falhas de msg 24h', value: wooMetrics.message_failures_24h, icon: XCircle },
+                { label: 'Webhooks ativos', value: wooMetrics.webhooks_active, icon: Webhook },
+                { label: 'Falhas webhook 24h', value: wooMetrics.webhook_failures_24h, icon: AlertCircle },
+                { label: 'Eventos WooAPI 24h', value: wooMetrics.wooapi_events_24h, icon: Activity },
+                { label: 'Webhook retrying', value: wooMetrics.webhook_retrying, icon: RefreshCw },
+                { label: 'Webhook pending', value: wooMetrics.webhook_pending, icon: Clock },
+                { label: 'Tempo medio webhook', value: `${formatNumber(wooMetrics.avg_webhook_duration_ms || 0)} ms`, icon: BarChart3 }
+              ].map(({ label, value, icon: Icon }) => (
+                <div key={label} className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 transition-all hover:border-slate-300 hover:shadow-sm">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-slate-50 text-slate-400">
+                    <Icon size={18} />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="truncate text-[10px] font-black uppercase tracking-wider text-slate-400">{label}</p>
+                    <p className="mt-0.5 text-lg font-black text-slate-900">{typeof value === 'number' ? formatNumber(value) : value}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <Card className="p-6">
+              <div className="mb-4 flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-black text-slate-950">Arquitetura em operacao</h3>
+                  <p className="text-sm text-slate-500">Componentes visiveis da plataforma WooAPI.</p>
+                </div>
+                <span className="rounded-md bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">WooAPI Platform</span>
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
+                {[
+                  ['wooapi-api', 'API REST, painel e WebSocket', 'bg-blue-50 border-blue-200', 'text-blue-700'],
+                  ['redis', 'Persistencia AOF para filas BullMQ', 'bg-red-50 border-red-200', 'text-red-700'],
+                  ['wooapi-webhook-worker', 'Entrega HTTP, HMAC e retry', 'bg-purple-50 border-purple-200', 'text-purple-700'],
+                  ['wooapi-message-worker', 'Envio assincrono de mensagens', 'bg-emerald-50 border-emerald-200', 'text-emerald-700'],
+                  ['wooapi-monitor-worker', 'Health check periodico das instancias', 'bg-amber-50 border-amber-200', 'text-amber-700'],
+                  ['wooapi-alert-worker', 'Regras de alerta e notificacao', 'bg-rose-50 border-rose-200', 'text-rose-700']
+                ].map(([name, text, bg, txtColor]) => (
+                  <div key={name} className={cn("rounded-md border p-4", bg)}>
+                    <p className={cn("text-xs font-black uppercase tracking-wide", txtColor)}>{name}</p>
+                    <p className="mt-1 text-[11px] text-slate-500">{text}</p>
+                  </div>
+                ))}
+              </div>
+            </Card>
+
+            <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+              <Card className="overflow-hidden">
+                <div className="border-b border-slate-100 p-5">
+                  <h3 className="text-lg font-black">Filas BullMQ</h3>
+                  <p className="text-sm text-slate-500">Redis, backlog e status por responsabilidade.</p>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-slate-50 text-[11px] font-black uppercase text-slate-400">
+                      <tr>
+                        <th className="px-5 py-3">Fila</th>
+                        <th className="px-5 py-3">Status</th>
+                        <th className="px-5 py-3">Waiting</th>
+                        <th className="px-5 py-3">Active</th>
+                        <th className="px-5 py-3">Failed</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {wooQueues.map((queue: any) => (
+                        <tr key={queue.name} className="border-t border-slate-100">
+                          <td className="px-5 py-3">
+                            <p className="font-black text-slate-900">{queue.label}</p>
+                            <p className="text-[11px] text-slate-400">{queue.name}</p>
+                          </td>
+                          <td className="px-5 py-3">
+                            <span className={cn("rounded px-2 py-1 text-[10px] font-black", queue.available ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700")}>
+                              {queue.available ? 'ONLINE' : 'OFFLINE'}
+                            </span>
+                          </td>
+                          <td className="px-5 py-3 font-bold">{formatNumber(queue.waiting || 0)}</td>
+                          <td className="px-5 py-3 font-bold">{formatNumber(queue.active || 0)}</td>
+                          <td className="px-5 py-3">
+                            <span className={cn("font-bold", Number(queue.failed || 0) > 0 ? "text-red-600" : "text-slate-900")}>
+                              {formatNumber(queue.failed || 0)}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                      {wooQueues.length === 0 && (
+                        <tr><td colSpan={5} className="px-5 py-10 text-center text-sm text-slate-400">Sem metricas de fila ainda.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+
+            <Card className="overflow-hidden">
+                <div className="border-b border-slate-100 p-5">
+                  <h3 className="text-lg font-black">Alertas de Suporte</h3>
+                  <p className="text-sm text-slate-500">Alertas reais e alertas calculados pela Central WooAPI.</p>
+                </div>
+                <div className="divide-y divide-slate-100">
+                  {wooAlerts.slice(0, 10).map((alert: any) => (
+                    <div key={alert.id} className="flex items-start gap-3 p-4">
+                      <div className={cn("mt-1 h-2.5 w-2.5 rounded-full shrink-0", alert.severity === 'critical' ? "bg-red-500 animate-pulse" : alert.severity === 'warning' ? "bg-amber-500" : "bg-slate-400")} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="font-black text-slate-900 truncate">{displayText(alert.title, 'Alerta')}</p>
+                          <div className="flex shrink-0 gap-1">
+                            {alert.status === 'open' && !String(alert.id).startsWith('synthetic_') && (
+                              <>
+                                <button
+                                  onClick={async () => {
+                                    await apiFetch(`/api/admin/alerts/${alert.id}/acknowledge`, { method: 'POST' });
+                                    fetchData();
+                                  }}
+                                  className="rounded bg-slate-100 px-2 py-1 text-[10px] font-black text-slate-600 hover:bg-blue-100 hover:text-blue-700"
+                                >Reconhecer</button>
+                                <button
+                                  onClick={async () => {
+                                    await apiFetch(`/api/admin/alerts/${alert.id}/resolve`, { method: 'POST' });
+                                    fetchData();
+                                  }}
+                                  className="rounded bg-slate-100 px-2 py-1 text-[10px] font-black text-slate-600 hover:bg-emerald-100 hover:text-emerald-700"
+                                >Resolver</button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        <p className="text-xs text-slate-500">{displayText(alert.description || alert.type, 'Sem descricao')}</p>
+                        <div className="mt-1 flex items-center gap-2">
+                          <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-black uppercase", alert.severity === 'critical' ? "bg-red-50 text-red-700" : alert.severity === 'warning' ? "bg-amber-50 text-amber-700" : "bg-slate-50 text-slate-600")}>
+                            {alert.severity}
+                          </span>
+                          <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-black uppercase", alert.status === 'open' ? "bg-blue-50 text-blue-700" : alert.status === 'acknowledged' ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700")}>
+                            {alert.status}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {wooAlerts.length === 0 && <p className="py-12 text-center text-sm text-slate-400">Nenhum alerta aberto agora.</p>}
+                </div>
+              </Card>
+            </div>
+
+            <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+              <Card className="overflow-hidden">
+                <div className="border-b border-slate-100 p-5">
+                  <h3 className="text-lg font-black">Logs Globais ao Vivo</h3>
+                  <p className="text-sm text-slate-500">Erros, desconexoes, API, mensagens e webhooks de todas as instancias.</p>
+                </div>
+                <div className="h-96 overflow-y-auto bg-slate-950 p-3 font-mono text-xs text-slate-100">
+                  {wooLiveLogs.length === 0 ? (
+                    <div className="flex h-full items-center justify-center text-slate-500">Aguardando logs operacionais.</div>
+                  ) : (
+                    <div className="space-y-2">
+                      {wooLiveLogs.slice(0, 80).map((log: any, index: number) => {
+                        const isError = log.success === false || log.error || Number(log.status_code || 0) >= 400 || String(log.status || '').toLowerCase().includes('fail');
+                        return (
+                          <div key={`${log.source}-${log.id || index}-${log.created_at}`} className="rounded-md border border-white/10 bg-white/5 p-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className={cn("rounded px-2 py-0.5 text-[10px] font-black uppercase", isError ? "bg-red-500/20 text-red-200" : "bg-emerald-500/20 text-emerald-200")}>{log.source}</span>
+                                  {log.account_id && <span className="text-[10px] text-slate-400">conta #{log.account_id}</span>}
+                                  {log.instance_id && <span className="text-[10px] text-slate-400">inst #{log.instance_id}</span>}
+                                </div>
+                                <p className="mt-1 break-words font-bold text-white">{log.event || log.path || log.title || log.message_id || 'evento'}</p>
+                                <p className="mt-1 break-words text-slate-300">{log.error || log.description || log.status || log.direction || log.method || 'sem detalhes'}</p>
+                              </div>
+                              <span className="shrink-0 text-[10px] text-slate-500">{log.created_at ? new Date(log.created_at).toLocaleTimeString('pt-BR') : ''}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </Card>
+
+              <Card className="overflow-hidden">
+                <div className="border-b border-slate-100 p-5">
+                  <h3 className="text-lg font-black">Tickets de Suporte</h3>
+                  <p className="text-sm text-slate-500">Escalonamentos abertos pelo agente e chamados dos clientes.</p>
+                </div>
+                <div className="divide-y divide-slate-100">
+                  {wooSupportTickets.slice(0, 12).map((ticket: any) => (
+                    <div key={ticket.id} className="p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate font-black text-slate-900">#{ticket.id} {ticket.subject}</p>
+                          <p className="text-xs text-slate-500">{ticket.account_name || `Conta #${ticket.account_id}`} {ticket.instance_name ? `- ${ticket.instance_name}` : ''}</p>
+                          {ticket.ai_summary && <p className="mt-2 text-xs text-slate-500">{ticket.ai_summary}</p>}
+                        </div>
+                        <span className={cn("shrink-0 rounded px-2 py-1 text-[10px] font-black uppercase", ticket.status === 'resolved' ? "bg-emerald-50 text-emerald-700" : ticket.priority === 'high' ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-700")}>
+                          {ticket.status}
+                        </span>
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          onClick={async () => {
+                            const text = prompt(`Responder ticket #${ticket.id}`);
+                            if (!text) return;
+                            await apiFetch(`/api/admin/support/tickets/${ticket.id}/messages`, { method: 'POST', body: JSON.stringify({ message: text }) });
+                            fetchData();
+                          }}
+                          className="rounded bg-slate-900 px-3 py-2 text-xs font-black text-white"
+                        >
+                          Responder
+                        </button>
+                        {ticket.status !== 'resolved' && (
+                          <button
+                            onClick={async () => {
+                              await apiFetch(`/api/admin/support/tickets/${ticket.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'resolved' }) });
+                              fetchData();
+                            }}
+                            className="rounded bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700"
+                          >
+                            Resolver
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  {wooSupportTickets.length === 0 && <p className="py-12 text-center text-sm text-slate-400">Nenhum ticket aberto.</p>}
+                </div>
+              </Card>
+            </div>
+
+            <Card className="overflow-hidden">
+              <div className="border-b border-slate-100 p-5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-lg font-black">Saude das Instancias</h3>
+                    <p className="text-sm text-slate-500">Status tecnico, saude operacional, webhooks e falhas recentes.</p>
+                  </div>
+                  <span className="hidden rounded-md bg-slate-100 px-3 py-1 text-xs font-black text-slate-600 md:inline-block">{formatNumber(wooInstances.length)} instancias</span>
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-slate-50 text-[11px] font-black uppercase text-slate-400">
+                    <tr>
+                      <th className="px-4 py-3">Cliente / Instancia</th>
+                      <th className="px-4 py-3">Status</th>
+                      <th className="px-4 py-3">Saude</th>
+                      <th className="px-4 py-3">Webhooks</th>
+                      <th className="px-4 py-3">Msgs 24h</th>
+                      <th className="px-4 py-3">Falhas 24h</th>
+                      <th className="px-4 py-3">Latencia</th>
+                      <th className="px-4 py-3">Risco / Acao</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {wooInstances.map((inst: any) => {
+                      const healthMap: Record<string, { dot: string; bg: string; pulse: boolean }> = {
+                        healthy: { dot: "bg-emerald-500", bg: "bg-emerald-50 text-emerald-700", pulse: false },
+                        degraded: { dot: "bg-amber-500", bg: "bg-amber-50 text-amber-700", pulse: false },
+                        unstable: { dot: "bg-orange-500", bg: "bg-orange-50 text-orange-700", pulse: false },
+                        offline: { dot: "bg-red-500", bg: "bg-red-50 text-red-700", pulse: false },
+                        critical: { dot: "bg-rose-500", bg: "bg-rose-50 text-rose-700", pulse: true }
+                      };
+                      const h = healthMap[inst.operational_status] || { dot: "bg-slate-400", bg: "bg-slate-50 text-slate-600", pulse: false };
+                      return (
+                        <tr key={inst.id} className="border-t border-slate-100 transition-colors hover:bg-slate-50/50">
+                          <td className="px-4 py-3">
+                            <p className="font-bold text-slate-900">{displayText(inst.name, `Instancia #${inst.id}`)}</p>
+                            <p className="text-[11px] text-slate-400">{displayText(inst.account_name, `Conta #${inst.account_id}`)} · {displayText(inst.phone_connected || inst.phone)}</p>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-black uppercase", isConnectedStatus(inst.status) ? "bg-emerald-50 text-emerald-700" : isQrStatus(inst.status) ? "bg-blue-50 text-blue-700" : inst.status === 'connecting' ? "bg-amber-50 text-amber-700" : "bg-slate-50 text-slate-600")}>
+                              {instanceStatusLabel(inst.status)}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-1.5">
+                              <span className={cn("inline-block h-2 w-2 shrink-0 rounded-full", h.dot, h.pulse && "animate-pulse")} />
+                              <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-black uppercase", h.bg)}>
+                                {inst.operational_status || 'unknown'}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 font-bold">{formatNumber(inst.active_webhooks || 0)}</td>
+                          <td className="px-4 py-3 font-bold">{formatNumber(inst.messages_24h || 0)}</td>
+                          <td className="px-4 py-3 font-bold">{formatNumber((inst.message_failures_24h || 0) + (inst.webhook_failures_24h || 0))}</td>
+                          <td className="px-4 py-3 font-bold">{formatNumber(inst.avg_webhook_duration_ms || 0)} ms</td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-start gap-2">
+                              <span className={cn(
+                                "rounded px-2 py-1 text-[10px] font-black",
+                                Number(inst.risk_score || 0) >= 70 ? "bg-rose-50 text-rose-700" :
+                                Number(inst.risk_score || 0) >= 35 ? "bg-amber-50 text-amber-700" :
+                                "bg-emerald-50 text-emerald-700"
+                              )}>{formatNumber(inst.risk_score || 0)}</span>
+                              <div className="min-w-[180px]">
+                                <p className="text-[11px] font-bold text-slate-700">{inst.recommended_action || 'Sem acao imediata.'}</p>
+                                {inst.last_seen_minutes !== null && inst.last_seen_minutes !== undefined && (
+                                  <p className="mt-1 text-[10px] text-slate-400">ultima atividade ha {formatNumber(inst.last_seen_minutes)} min</p>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {wooInstances.length === 0 && (
+                      <tr><td colSpan={8} className="px-5 py-10 text-center text-sm text-slate-400">Nenhuma instancia cadastrada ainda.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+
+            <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+              <Card className="overflow-hidden">
+                <div className="border-b border-slate-100 p-5">
+                  <h3 className="text-lg font-black">Webhooks por Instancia</h3>
+                  <p className="text-sm text-slate-500">Configuracoes cadastradas no novo modulo de webhooks.</p>
+                </div>
+                <div className="divide-y divide-slate-100">
+                  {wooWebhooks.slice(0, 10).map((hook: any) => (
+                    <div key={hook.id} className="p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-black text-slate-900">{displayText(hook.name, 'Webhook WooAPI')}</p>
+                          <p className="text-xs text-slate-500">{displayText(hook.account_name, `Conta #${hook.account_id}`)} - {displayText(hook.instance_name, `Instancia #${hook.instance_id}`)}</p>
+                        </div>
+                        <span className={cn("rounded px-2 py-1 text-[10px] font-black", hook.is_active ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500")}>
+                          {hook.is_active ? 'ATIVO' : 'PAUSADO'}
+                        </span>
+                      </div>
+                      <p className="mt-2 truncate rounded bg-slate-50 px-2 py-1 font-mono text-[11px] text-slate-500">{hook.url}</p>
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {parseList(hook.events).slice(0, 4).map((event: any, index: number) => (
+                          <span key={`${displayText(event, 'event')}_${index}`} className="rounded bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-600">{displayText(event, 'evento')}</span>
+                        ))}
+                        {parseList(hook.events).length === 0 && <span className="rounded bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-600">todos os eventos</span>}
+                      </div>
+                    </div>
+                  ))}
+                  {wooWebhooks.length === 0 && <p className="py-12 text-center text-sm text-slate-400">Nenhum webhook novo cadastrado ainda.</p>}
+                </div>
+              </Card>
+
+              <Card className="overflow-hidden">
+                <div className="border-b border-slate-100 p-5">
+                  <h3 className="text-lg font-black">Logs de Entrega</h3>
+                  <p className="text-sm text-slate-500">Cada tentativa do worker aparece aqui.</p>
+                </div>
+                <div className="divide-y divide-slate-100">
+                  {wooWebhookLogs.slice(0, 10).map((log: any) => (
+                    <div key={log.id} className="p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-black text-slate-900">{displayText(log.event, 'Evento')}</p>
+                          <p className="text-xs text-slate-500">{displayText(log.webhook_name, 'Webhook')} - tentativa {displayText(log.attempt, '1')}</p>
+                        </div>
+                        <span className={cn("rounded px-2 py-1 text-[10px] font-black", log.success ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700")}>
+                          {log.success ? 'SUCESSO' : 'FALHA'}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-xs text-slate-500">HTTP {log.status_code || '-'} - {formatNumber(log.duration_ms || 0)} ms - {log.instance_name || `Instancia #${log.instance_id}`}</p>
+                      {log.error && <p className="mt-1 text-xs font-bold text-red-600">{displayText(log.error)}</p>}
+                    </div>
+                  ))}
+                  {wooWebhookLogs.length === 0 && <p className="py-12 text-center text-sm text-slate-400">Nenhuma tentativa registrada ainda.</p>}
+                </div>
+              </Card>
+            </div>
+          </div>
+        )}
+
+        {activeSubTab === 'accounts' && (
+          <div className="grid grid-cols-1 gap-5 xl:grid-cols-[360px_1fr]">
+            <Card className="h-fit p-6">
+              <div className="mb-5 flex items-center gap-3">
+                <UserCog size={20} className="text-red-600" />
+                <h3 className="text-lg font-black">Nova Conta</h3>
+              </div>
+              <div className="space-y-3">
+                <input className="w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm" placeholder="Empresa" value={newAccount.name} onChange={e => setNewAccount({ ...newAccount, name: e.target.value })} />
+                <input className="w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm" placeholder="Nome do admin" value={newAccount.owner_name} onChange={e => setNewAccount({ ...newAccount, owner_name: e.target.value })} />
+                <input className="w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm" placeholder="E-mail do admin" value={newAccount.owner_email} onChange={e => setNewAccount({ ...newAccount, owner_email: e.target.value })} />
+                <input className="w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm" placeholder="Senha inicial" type="password" value={newAccount.password} onChange={e => setNewAccount({ ...newAccount, password: e.target.value })} />
+                <select className="w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm" value={newAccount.plan_id} onChange={e => setNewAccount({ ...newAccount, plan_id: e.target.value })}>
+                  <option value="">Plano...</option>
+                  {plans.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+                <select className="w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm" value={newAccount.account_type} onChange={e => setNewAccount({ ...newAccount, account_type: e.target.value })}>
+                  <option value="client">Cliente final</option>
+                  <option value="reseller">Revendedor</option>
+                  <option value="owner">Dono do sistema</option>
+                </select>
+                <div className="grid grid-cols-2 gap-2">
+                  <input className="w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm" placeholder="Instancias" type="number" value={newAccount.instance_quota} onChange={e => setNewAccount({ ...newAccount, instance_quota: Number(e.target.value) })} />
+                  <input className="w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm" placeholder="Clientes" type="number" value={newAccount.max_client_accounts} onChange={e => setNewAccount({ ...newAccount, max_client_accounts: Number(e.target.value) })} />
+                </div>
+                <button onClick={createAccount} className="flex w-full items-center justify-center gap-2 rounded-md bg-red-600 py-3 text-sm font-black text-white transition-colors hover:bg-red-700">
+                  <Plus size={18} />
+                  Criar cliente
+                </button>
+              </div>
+            </Card>
+
+            <Card className="overflow-x-auto">
+              <table className="w-full min-w-[760px] text-left">
+                <thead>
+                  <tr className="border-b border-slate-100 bg-white text-xs font-black uppercase text-slate-400">
+                    <th className="px-6 py-4">Cliente</th>
+                    <th className="px-6 py-4">Plano</th>
+                    <th className="px-6 py-4">Uso</th>
+                    <th className="px-6 py-4">Status</th>
+                    <th className="px-6 py-4">Acoes</th>
+                  </tr>
+                </thead>
+                <tbody className="text-sm">
+                  {accounts.map((acc) => (
+                    <tr key={acc.id} className="border-b border-slate-100 last:border-0">
+                      <td className="px-6 py-4">
+                        <p className="font-black text-slate-900">{displayText(acc.name, `Conta #${acc.id}`)}</p>
+                        <p className="text-xs text-slate-500">{displayText(acc.owner_email, `Conta #${acc.id}`)}</p>
+                      </td>
+                      <td className="px-6 py-4">
+                        <select className="rounded-md border border-slate-200 bg-slate-50 p-2 text-xs font-semibold" value={acc.plan_id || ''} onChange={(e) => updateAccountPlan(acc.id, e.target.value ? Number(e.target.value) : null)}>
+                          <option value="">Sem plano</option>
+                          {plans.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                        </select>
+                      </td>
+                      <td className="px-6 py-4 text-xs text-slate-500">
+                        <p>Instancias: <strong>{acc.usage?.instances || 0}/{acc.max_instances || '-'}</strong></p>
+                        <p>Usuarios: <strong>{acc.usage?.users || 0}/{acc.max_users || '-'}</strong></p>
+                        <p>Mensagens: <strong>{formatNumber(acc.usage?.messages || 0)}/{formatNumber(acc.max_messages || 0)}</strong></p>
+                      </td>
+                      <td className="px-6 py-4">
+                        <select className="rounded-md border border-slate-200 bg-slate-50 p-2 text-xs font-semibold" value={acc.status || 'active'} onChange={(e) => updateAccountStatus(acc.id, e.target.value)}>
+                          <option value="active">Ativa</option>
+                          <option value="paused">Pausada</option>
+                          <option value="blocked">Bloqueada</option>
+                        </select>
+                      </td>
+                      <td className="px-6 py-4">
+                        <button onClick={() => impersonateAccount(acc.id)} className="rounded-md bg-slate-900 px-3 py-2 text-xs font-black text-white hover:bg-red-600">
+                          Acessar conta
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Card>
+          </div>
+        )}
+
+        {activeSubTab === 'plans' && (
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-[360px_1fr]">
+            <Card className="h-fit p-6">
+              <div className="mb-5 flex items-center gap-3">
+                <CreditCard size={20} className="text-red-600" />
+                <h3 className="text-lg font-black">Novo Plano</h3>
+              </div>
+              <div className="space-y-4">
+                <input type="text" placeholder="Nome do plano" className="w-full rounded-md border border-slate-200 bg-slate-50 px-4 py-2 text-sm" value={newPlan.name} onChange={(e) => setNewPlan({ ...newPlan, name: e.target.value })} />
+                <input type="number" placeholder="Preco" className="w-full rounded-md border border-slate-200 bg-slate-50 px-4 py-2 text-sm" value={newPlan.price} onChange={(e) => setNewPlan({ ...newPlan, price: Number(e.target.value) })} />
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    ['Instancias', 'max_instances'],
+                    ['Usuarios', 'max_users'],
+                    ['Mensagens', 'max_messages'],
+                    ['Clientes', 'max_client_accounts']
+                  ].map(([label, key]) => (
+                    <label key={key} className="text-[10px] font-black uppercase text-slate-400">
+                      {label}
+                      <input
+                        type="number"
+                        className="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-2 py-2 text-xs"
+                        value={(newPlan as any)[key]}
+                        onChange={(e) => setNewPlan({ ...newPlan, [key]: Number(e.target.value) } as any)}
+                      />
+                    </label>
+                  ))}
+                </div>
+                <textarea rows={3} placeholder="Recursos separados por virgula" className="w-full resize-none rounded-md border border-slate-200 bg-slate-50 px-4 py-2 text-sm" value={newPlan.features} onChange={(e) => setNewPlan({ ...newPlan, features: e.target.value })} />
+                <button onClick={createPlan} className="flex w-full items-center justify-center gap-2 rounded-md bg-red-600 py-3 text-sm font-black text-white hover:bg-red-700">
+                  <Plus size={18} />
+                  Criar Plano
+                </button>
+              </div>
+            </Card>
+
+            <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+              {plans.map((plan) => (
+                <Card key={plan.id} className="border-t-4 border-t-red-600 p-6">
+                  <div className="mb-4 flex items-start justify-between gap-3">
+                    <h4 className="text-xl font-black">{plan.name}</h4>
+                    <span className="text-xl font-black text-red-600">{formatCurrency(plan.price)}</span>
+                  </div>
+                  <div className="space-y-2 text-xs text-slate-500">
+                    <p className="flex justify-between"><span>Instancias</span><strong>{plan.max_instances}</strong></p>
+                    <p className="flex justify-between"><span>Usuarios</span><strong>{plan.max_users}</strong></p>
+                    <p className="flex justify-between"><span>Mensagens/mes</span><strong>{formatNumber(plan.max_messages)}</strong></p>
+                    <p className="flex justify-between"><span>Clientes filhos</span><strong>{plan.max_client_accounts || 0}</strong></p>
+                  </div>
+                  <div className="mt-5 flex flex-wrap gap-2">
+                    {parseList(plan.features_json).map((f: any, i: number) => (
+                      <span key={i} className="rounded bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-600">{displayText(f, 'recurso')}</span>
+                    ))}
+                  </div>
+                </Card>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {activeSubTab === 'monitor' && (
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+            <Card className="p-6">
+              <h3 className="mb-4 text-lg font-black">Saude do SaaS</h3>
+              <div className="space-y-3 text-sm">
+                <p className="flex justify-between"><span className="text-slate-500">API Node</span><span className="font-black text-emerald-600">Online</span></p>
+                <p className="flex justify-between"><span className="text-slate-500">WooAPI Core</span><span className="font-black">{connectedInstances ? 'Ativo' : 'Monitorar'}</span></p>
+                <p className="flex justify-between"><span className="text-slate-500">Webhooks falhos</span><span className="font-black">{formatNumber(failedWebhooks)}</span></p>
+                <p className="flex justify-between"><span className="text-slate-500">Mensagens no mes</span><span className="font-black">{formatNumber(overview?.messages_month || 0)}</span></p>
+              </div>
+            </Card>
+            <Card className="p-6 lg:col-span-2">
+              <h3 className="mb-4 text-lg font-black">Contas proximas do limite</h3>
+              <div className="space-y-3">
+                {nearLimitAccounts.map(acc => (
+                  <div key={acc.id} className="flex items-center justify-between rounded-md border border-slate-200 bg-slate-50 p-3">
+                    <div>
+                      <p className="font-bold">{displayText(acc.name, `Conta #${acc.id}`)}</p>
+                      <p className="text-xs text-slate-500">Instancias: {acc.usage?.instances}/{acc.max_instances}</p>
+                    </div>
+                    <button onClick={() => impersonateAccount(acc.id)} className="rounded-md bg-red-600 px-3 py-2 text-xs font-black text-white">Acessar</button>
+                  </div>
+                ))}
+                {nearLimitAccounts.length === 0 && <p className="py-10 text-center text-sm text-slate-500">Nenhuma conta estourando limite agora.</p>}
+              </div>
+            </Card>
+          </div>
+        )}
+
+        {activeSubTab === 'webhooks' && (
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+            <Card className="p-6">
+              <Webhook className="mb-4 text-red-600" size={26} />
+              <h3 className="text-lg font-black">Entregas de Webhook</h3>
+              <p className="mt-2 text-sm text-slate-500">Use esta area para enxergar falhas globais e entrar na conta afetada.</p>
+              <p className="mt-6 text-3xl font-black text-slate-950">{formatNumber(failedWebhooks)}</p>
+              <p className="text-xs font-bold uppercase text-slate-400">falhas registradas</p>
+            </Card>
+            <Card className="p-6 lg:col-span-2">
+              <h3 className="mb-4 text-lg font-black">Clientes para revisar</h3>
+              <div className="space-y-3">
+                {(failedWebhooks > 0 ? accounts.slice(0, 6) : []).map((acc) => (
+                  <div key={acc.id} className="flex items-center justify-between rounded-md border border-slate-100 bg-slate-50 p-3">
+                    <div>
+                      <p className="font-bold text-slate-900">{displayText(acc.name, `Conta #${acc.id}`)}</p>
+                      <p className="text-xs text-slate-500">{displayText(acc.owner_email)}</p>
+                    </div>
+                    <button onClick={() => impersonateAccount(acc.id)} className="rounded-md bg-slate-900 px-3 py-2 text-xs font-black text-white">Investigar</button>
+                  </div>
+                ))}
+                {failedWebhooks === 0 && <p className="py-10 text-center text-sm text-slate-500">Nenhuma falha de webhook no momento.</p>}
+              </div>
+            </Card>
+          </div>
+        )}
+
+        {activeSubTab === 'audit' && (
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+            <Card className="p-6">
+              <FileText className="mb-4 text-red-600" size={26} />
+              <h3 className="text-lg font-black">Trilha de Auditoria</h3>
+              <p className="mt-2 text-sm text-slate-500">Resumo visual das acoes sensiveis executadas pelo Super Admin.</p>
+            </Card>
+            <Card className="p-6 lg:col-span-2">
+              <div className="space-y-3">
+                {[
+                  ['support.impersonate', 'Acesso de suporte em contas de clientes', KeyRound],
+                  ['admin.account.updated', 'Alteracoes de plano, status e cotas', UserCog],
+                  ['admin.account.created', 'Criacao de clientes e revendedores', Building2]
+                ].map(([action, description, Icon]: any) => (
+                  <div key={action} className="flex items-center gap-4 rounded-md border border-slate-100 bg-slate-50 p-4">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-md bg-white text-slate-600">
+                      <Icon size={18} />
+                    </div>
+                    <div>
+                      <p className="font-black text-slate-900">{action}</p>
+                      <p className="text-sm text-slate-500">{description}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          </div>
+        )}
+
+        {activeSubTab === 'settings' && (
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+            {[
+              { title: 'Dominios', text: 'Configure APP_URL, CORS e proxy reverso no Portainer.', icon: Globe2 },
+              { title: 'Banco e Volume', text: 'Persistencia principal em /data para SQLite, sessoes e uploads.', icon: Database },
+              { title: 'Feature Flags', text: 'Area reservada para ativar recursos por plano ou cliente.', icon: Flag },
+              { title: 'Suporte', text: 'Use o acesso por conta para diagnostico sem trocar senha do cliente.', icon: LifeBuoy },
+              { title: 'Analytics', text: 'Mensagens, instancias conectadas, churn e receita estimada.', icon: BarChart3 },
+              { title: 'Seguranca', text: 'Segredos JWT, webhook e WooAPI Core devem ser fortes em producao.', icon: ShieldCheck }
+            ].map(({ title, text, icon: Icon }) => (
+              <Card key={title} className="p-6">
+                <Icon className="mb-4 text-red-600" size={24} />
+                <h3 className="font-black text-slate-950">{title}</h3>
+                <p className="mt-2 text-sm text-slate-500">{text}</p>
+              </Card>
+            ))}
+          </div>
+        )}
+      </section>
+    </motion.div>
+  );
+};
+
 export default function App() {
-  const [auth, setAuth] = useState<{ accountId: number, user: any } | null>(() => {
-    const saved = localStorage.getItem('wasender_auth');
-    return saved ? JSON.parse(saved) : null;
+  const [auth, setAuth] = useState<{ accountId: number, user: any, account?: any, token?: string } | null>(() => {
+    const saved = localStorage.getItem('wooapi_auth');
+    if (!saved) return null;
+    try {
+      const parsed = JSON.parse(saved);
+      if (!parsed?.token || !parsed?.user || typeof parsed.user !== 'object') return null;
+      return parsed;
+    } catch {
+      localStorage.removeItem('wooapi_auth');
+      return null;
+    }
   });
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [authForm, setAuthForm] = useState({ companyName: '', name: '', email: '', password: '' });
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'search' | 'leads' | 'agents' | 'whatsapp' | 'campaigns' | 'settings' | 'kanban' | 'messages' | 'agenda' | 'super_admin'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'clients' | 'api_docs' | 'search' | 'leads' | 'agents' | 'whatsapp' | 'wooapi_monitor' | 'campaigns' | 'settings' | 'kanban' | 'messages' | 'agenda' | 'super_admin' | 'integrations' | 'support'>('dashboard');
   const [settingsSubTab, setSettingsSubTab] = useState<'credentials' | 'team'>('credentials');
   const [loading, setLoading] = useState(false);
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -409,25 +1701,52 @@ export default function App() {
   const [team, setTeam] = useState<TeamMember[]>([]);
   const [credentials, setCredentials] = useState<LLMCredential[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
-  
+
   // WhatsApp & Real-time States
   const [instances, setInstances] = useState<Instance[]>([]);
+  const [selectedWooInstanceId, setSelectedWooInstanceId] = useState<number | null>(null);
+  const [instanceWebhooks, setInstanceWebhooks] = useState<any[]>([]);
+  const [webhookLogs, setWebhookLogs] = useState<any[]>([]);
+  const [webhookEvents, setWebhookEvents] = useState<any[]>([]);
+  const [platformMonitor, setPlatformMonitor] = useState<any>(null);
+  const [newWebhook, setNewWebhook] = useState({
+    name: 'Webhook n8n',
+    url: '',
+    events: 'message.received,message.sent,instance.disconnected',
+    retry_enabled: true,
+    max_attempts: 5
+  });
+  const [resellerOverview, setResellerOverview] = useState<any>(null);
+  const [clientAccounts, setClientAccounts] = useState<any[]>([]);
+  const [newClient, setNewClient] = useState({ name: '', owner_name: '', owner_email: '', password: '', instance_quota: 1, max_client_accounts: 0 });
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<number | null>(null);
   const [chatMessages, setChatMessages] = useState<Message[]>([]);
+  const activeConversationIdRef = React.useRef<number | null>(null);
   const [newMessage, setNewMessage] = useState('');
   const [socket, setSocket] = useState<Socket | null>(null);
   const [wsStatus, setWsStatus] = useState<WhatsAppStatus>({ status: 'none', qr: null });
+  const [qrModalInstance, setQrModalInstance] = useState<Instance | null>(null);
+  const [testerInstance, setTesterInstance] = useState<Instance | null>(null);
   const [msgFilter, setMsgFilter] = useState<'all' | 'contact' | 'group'>('all');
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const [liveMessages, setLiveMessages] = useState<any[]>([]);
+  const [liveQueueMetrics, setLiveQueueMetrics] = useState<any>(null);
+  const [supportTickets, setSupportTickets] = useState<any[]>([]);
+  const [supportChatMessages, setSupportChatMessages] = useState<any[]>([
+    { sender: 'ai', message: 'Oi, sou o agente de suporte WooAPI. Me diga o que aconteceu e qual instancia esta afetada; eu vou tentar resolver antes de abrir ticket.', created_at: new Date().toISOString() }
+  ]);
+  const [supportInput, setSupportInput] = useState('');
+  const [supportInstanceId, setSupportInstanceId] = useState<number | ''>('');
+  const [supportSending, setSupportSending] = useState(false);
 
   // Search State
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
 
   // Agent Form State
-  const [newAgent, setNewAgent] = useState({ 
-    name: '', 
+  const [newAgent, setNewAgent] = useState({
+    name: '',
     system_instruction: '',
     personality: 'Profissional e amigável',
     faq: [{ q: '', a: '' }],
@@ -480,21 +1799,30 @@ export default function App() {
     const headers = {
       ...options.headers,
       'x-account-id': auth.accountId.toString(),
+      ...(auth.token ? { 'Authorization': `Bearer ${auth.token}` } : {}),
       'Content-Type': 'application/json'
     };
     // Ensure absolute URL if API_URL is provided, otherwise relative
     const finalUrl = url.startsWith('http') ? url : `${API_URL}${url}`;
-    const res = await fetch(finalUrl, { ...options, headers });
+    let res: Response;
+    try {
+      res = await fetch(finalUrl, { ...options, headers });
+    } catch (error) {
+      console.error(`API Error: request failed for ${url}`, error);
+      return null;
+    }
     if (res.status === 401) {
       handleLogout();
       return null;
     }
-    
+
     const contentType = res.headers.get("content-type");
     if (contentType && contentType.includes("application/json")) {
-      return res.json();
+      const data = await res.json();
+      if (data && data.success === true && Object.prototype.hasOwnProperty.call(data, 'data')) return data.data;
+      return data;
     }
-    
+
     // Non-JSON response (likely an error page)
     const text = await res.text();
     console.error(`API Error (${res.status}): Non-JSON response from ${url}`, text.substring(0, 100));
@@ -509,9 +1837,9 @@ export default function App() {
     });
     const data = await res.json();
     if (data.success) {
-      const authData = { accountId: data.accountId, user: data.user };
+      const authData = { accountId: data.accountId, user: data.user, account: data.account, token: data.token };
       setAuth(authData);
-      localStorage.setItem('wasender_auth', JSON.stringify(authData));
+      localStorage.setItem('wooapi_auth', JSON.stringify(authData));
     } else {
       alert(data.error || 'Erro ao entrar');
     }
@@ -534,7 +1862,14 @@ export default function App() {
 
   const handleLogout = () => {
     setAuth(null);
-    localStorage.removeItem('wasender_auth');
+    localStorage.removeItem('wooapi_auth');
+  };
+
+  const handleImpersonate = (session: any) => {
+    const authData = { accountId: session.accountId, user: session.user, account: session.account, token: session.token };
+    setAuth(authData);
+    localStorage.setItem('wooapi_auth', JSON.stringify(authData));
+    setActiveTab('dashboard');
   };
 
   const fetchLeads = async () => {
@@ -574,13 +1909,154 @@ export default function App() {
 
   const fetchInstances = async () => {
     const data = await apiFetch('/api/whatsapp/instances');
-    if (data) setInstances(data);
+    if (data) {
+      setInstances(data);
+      if (!selectedWooInstanceId && data.length > 0) setSelectedWooInstanceId(data[0].id);
+    }
+  };
+
+  const fetchWooApiPanel = async (instanceId = selectedWooInstanceId) => {
+    const monitor = await apiFetch('/api/admin/wooapi-monitor');
+    if (monitor) setPlatformMonitor(monitor);
+    if (!instanceId) return;
+    const [hooks, logs, events] = await Promise.all([
+      apiFetch(`/api/whatsapp/instances/${instanceId}/webhooks`),
+      apiFetch(`/api/whatsapp/instances/${instanceId}/webhook-logs`),
+      apiFetch(`/api/whatsapp/instances/${instanceId}/webhook-events`)
+    ]);
+    if (Array.isArray(hooks)) setInstanceWebhooks(hooks);
+    if (Array.isArray(logs)) setWebhookLogs(logs);
+    if (Array.isArray(events)) setWebhookEvents(events);
+  };
+
+  const assignSelectedInstance = async () => {
+    if (!selectedWooInstanceId) return;
+    await apiFetch(`/api/admin/platform/instances/${selectedWooInstanceId}/assign`, { method: 'POST', body: JSON.stringify({}) });
+    await fetchInstances();
+    fetchWooApiPanel(selectedWooInstanceId);
+  };
+
+  const transitionSelectedInstance = async (trigger: string) => {
+    if (!selectedWooInstanceId) return;
+    await apiFetch(`/api/admin/platform/instances/${selectedWooInstanceId}/state`, {
+      method: 'POST',
+      body: JSON.stringify({ trigger, metadata: { source: 'front_panel' } })
+    });
+    await fetchInstances();
+    fetchWooApiPanel(selectedWooInstanceId);
+  };
+
+  const toggleNodeDrain = async (node: any) => {
+    await apiFetch(`/api/admin/platform/core-nodes/${encodeURIComponent(node.id)}/drain`, {
+      method: 'POST',
+      body: JSON.stringify({ enabled: !Number(node.drain_mode || 0) })
+    });
+    fetchWooApiPanel(selectedWooInstanceId);
+  };
+
+  const createWebhook = async () => {
+    if (!selectedWooInstanceId || !newWebhook.url) return;
+    const events = newWebhook.events.split(',').map(event => event.trim()).filter(Boolean);
+    await apiFetch(`/api/whatsapp/instances/${selectedWooInstanceId}/webhooks`, {
+      method: 'POST',
+      body: JSON.stringify({
+        ...newWebhook,
+        events,
+        max_attempts: Number(newWebhook.max_attempts || 5)
+      })
+    });
+    setNewWebhook({ name: 'Webhook n8n', url: '', events: 'message.received,message.sent,instance.disconnected', retry_enabled: true, max_attempts: 5 });
+    fetchWooApiPanel(selectedWooInstanceId);
+  };
+
+  const toggleWebhook = async (webhook: any) => {
+    await apiFetch(`/api/whatsapp/instances/${webhook.instance_id}/webhooks/${webhook.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ is_active: !webhook.is_active })
+    });
+    fetchWooApiPanel(webhook.instance_id);
+  };
+
+  const deleteWebhook = async (webhook: any) => {
+    if (!confirm('Remover este webhook?')) return;
+    await apiFetch(`/api/whatsapp/instances/${webhook.instance_id}/webhooks/${webhook.id}`, { method: 'DELETE' });
+    fetchWooApiPanel(webhook.instance_id);
+  };
+
+  const testWebhook = async (webhook: any) => {
+    await apiFetch(`/api/whatsapp/instances/${webhook.instance_id}/webhooks/${webhook.id}/test`, {
+      method: 'POST',
+      body: JSON.stringify({ source: 'painel', sent_at: new Date().toISOString() })
+    });
+    fetchWooApiPanel(webhook.instance_id);
+  };
+
+  const retryWebhookLog = async (logId: number) => {
+    await apiFetch(`/api/whatsapp/webhook-logs/${logId}/retry`, { method: 'POST' });
+    fetchWooApiPanel();
   };
 
   const fetchConversations = async () => {
     const data = await apiFetch('/api/conversations');
     if (data) setConversations(data);
   };
+
+  const fetchSupportTickets = async () => {
+    const data = await apiFetch('/api/support/tickets');
+    if (Array.isArray(data)) setSupportTickets(data);
+  };
+
+  const sendSupportChat = async () => {
+    const message = supportInput.trim();
+    if (!message || supportSending) return;
+    setSupportSending(true);
+    setSupportInput('');
+    const userMessage = { sender: 'customer', message, created_at: new Date().toISOString() };
+    setSupportChatMessages(prev => [...prev, userMessage]);
+    const response = await apiFetch('/api/support/chat', {
+      method: 'POST',
+      body: JSON.stringify({
+        message,
+        instance_id: supportInstanceId || undefined
+      })
+    });
+    if (response?.reply) {
+      setSupportChatMessages(prev => [...prev, {
+        sender: 'ai',
+        message: response.reply,
+        ticket: response.ticket,
+        created_at: new Date().toISOString()
+      }]);
+    } else {
+      setSupportChatMessages(prev => [...prev, {
+        sender: 'ai',
+        message: 'Nao consegui consultar o suporte agora. Tente novamente em alguns segundos.',
+        created_at: new Date().toISOString()
+      }]);
+    }
+    if (response?.ticket) fetchSupportTickets();
+    setSupportSending(false);
+  };
+
+  const fetchResellerOverview = async () => {
+    const data = await apiFetch('/api/reseller/overview');
+    if (data) setResellerOverview(data);
+  };
+
+  const fetchClientAccounts = async () => {
+    const data = await apiFetch('/api/reseller/clients');
+    if (data) setClientAccounts(data);
+  };
+
+  const canUseResellerPanel = () => {
+    const role = auth?.user?.role;
+    const accountType = auth?.account?.account_type;
+    return role === 'super_admin' || accountType === 'owner' || accountType === 'reseller';
+  };
+
+  useEffect(() => {
+    activeConversationIdRef.current = activeConversationId;
+  }, [activeConversationId]);
 
   const fetchChatMessages = async (convId: number) => {
     const data = await apiFetch(`/api/conversations/${convId}/messages`);
@@ -591,7 +2067,7 @@ export default function App() {
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash.replace('#', '') as any;
-      const validTabs = ['dashboard', 'search', 'leads', 'agents', 'whatsapp', 'campaigns', 'settings', 'kanban', 'messages', 'agenda', 'super_admin'];
+      const validTabs = ['dashboard', 'clients', 'api_docs', 'search', 'leads', 'agents', 'whatsapp', 'wooapi_monitor', 'campaigns', 'settings', 'kanban', 'messages', 'agenda', 'super_admin', 'integrations', 'support'];
       if (validTabs.includes(hash)) {
         setActiveTab(hash);
       }
@@ -615,6 +2091,12 @@ export default function App() {
   }, [activeTab]);
 
   useEffect(() => {
+    if (auth && auth.user?.role !== 'super_admin' && activeTab === 'super_admin') {
+      setActiveTab('dashboard');
+    }
+  }, [auth, activeTab]);
+
+  useEffect(() => {
     if (auth) {
       fetchLeads();
       fetchAgents();
@@ -625,50 +2107,108 @@ export default function App() {
       fetchSchedules();
       fetchInstances();
       fetchConversations();
+      fetchSupportTickets();
+      if (canUseResellerPanel()) {
+        fetchResellerOverview();
+        fetchClientAccounts();
+      }
 
       const newSocket = io(API_URL || window.location.origin, {
-        query: { accountId: auth.accountId }
+        query: { accountId: auth.accountId, token: auth.token },
+        reconnection: true,
+        reconnectionAttempts: Infinity,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 10000,
+        randomizationFactor: 0.5,
+        timeout: 20000
       });
 
-      newSocket.on("instance.status", ({ instanceId, status, phoneConnected }) => {
-        setInstances(prev => prev.map(inst => 
-          inst.id === instanceId ? { ...inst, status, phoneConnected, qr: status === 'open' ? null : inst.qr } : inst
+      newSocket.on("connect", () => {
+        console.log("[WS] connected");
+      });
+
+      newSocket.on("disconnect", (reason) => {
+        console.log("[WS] disconnected:", reason);
+      });
+
+      newSocket.on("connect_error", (err) => {
+        console.log("[WS] connection error:", err.message);
+      });
+
+      newSocket.on("wooapi:heartbeat", (data: any) => {
+      });
+
+      newSocket.on("instance.status", ({ instanceId, status, phoneConnected, profileName, profilePictureUrl }) => {
+        setInstances(prev => prev.map(inst =>
+          inst.id === instanceId ? {
+            ...inst,
+            status,
+            phoneConnected: isConnectedStatus(status) ? (phoneConnected || inst.phoneConnected) : undefined,
+            phone_connected: isConnectedStatus(status) ? (phoneConnected || inst.phone_connected) : undefined,
+            profileName: isConnectedStatus(status) ? (profileName || inst.profileName) : undefined,
+            profile_name: isConnectedStatus(status) ? (profileName || inst.profile_name) : undefined,
+            profilePictureUrl: isConnectedStatus(status) ? (profilePictureUrl || inst.profilePictureUrl) : undefined,
+            profile_picture_url: isConnectedStatus(status) ? (profilePictureUrl || inst.profile_picture_url) : undefined,
+            qr: isConnectedStatus(status) ? null : inst.qr
+          } : inst
         ));
-        
+
         // Update global wsStatus for sidebar/dashboard compatibility
-        if (status === 'open') {
-          setWsStatus({ status: 'open', qr: null });
+        if (isConnectedStatus(status)) {
+          setQrModalInstance(prev => prev?.id === instanceId ? null : prev);
+          setWsStatus({ status: 'connected', qr: null });
         }
       });
 
       newSocket.on("instance.qr", ({ instanceId, qr }) => {
-        setInstances(prev => prev.map(inst => 
-          inst.id === instanceId ? { ...inst, qr, status: 'qr' } : inst
+        setInstances(prev => prev.map(inst =>
+          inst.id === instanceId ? { ...inst, qr, status: 'qr_pending' } : inst
         ));
-        setWsStatus({ status: 'qr', qr });
+        setWsStatus({ status: 'qr_pending', qr });
+        // Re-open or update the QR modal even when it was closed during QR rotation
+        setQrModalInstance(prev => {
+          if (prev?.id === instanceId) return { ...prev, qr, status: 'qr_pending' };
+          // Modal is closed but a new QR arrived — re-open it
+          setInstances(current => {
+            const targetInst = current.find(i => i.id === instanceId);
+            if (targetInst) {
+              // Schedule update outside this render to avoid nested setState
+              setTimeout(() => setQrModalInstance({ ...targetInst, qr, status: 'qr_pending' }), 0);
+            }
+            return current;
+          });
+          return prev;
+        });
       });
 
       newSocket.on("message.new", (data: any) => {
-        console.log('[FRONT_INBOUND_RENDER]', data);
-        const { conversationId, message, conversation } = data;
-        
-        // If the new message belongs to the active conversation, push it directly
-        if (conversationId && message) {
+        const { conversationId, message, conversation, instanceId } = data;
+
+        if (conversationId && message && Number(conversationId) === Number(activeConversationIdRef.current)) {
           setChatMessages(prev => {
-            // Deduplicate by message_id
             if (message.message_id && prev.some((m: any) => m.message_id === message.message_id)) {
               return prev;
+            }
+            const optimisticIndex = prev.findIndex((m: any) => {
+              const isOptimistic = String(m.message_id || "").startsWith("opt_");
+              if (!isOptimistic || m.direction !== message.direction) return false;
+              if (Number(m.conversation_id) !== Number(conversationId)) return false;
+              if (m.content_type !== message.content_type) return false;
+              return String(m.content_text || m.content || "") === String(message.content_text || message.content || "");
+            });
+            if (optimisticIndex >= 0) {
+              return prev.map((m, index) => index === optimisticIndex ? { ...m, ...message } : m);
             }
             return [...prev, message];
           });
         }
-        
+
         // Update conversations list
         if (conversation) {
           setConversations(prev => {
             const exists = prev.find(c => c.id === conversationId);
             if (exists) {
-              return prev.map(c => c.id === conversationId 
+              return prev.map(c => c.id === conversationId
                 ? { ...c, last_message_preview: conversation.last_message_preview, last_message_at: new Date().toISOString() }
                 : c
               ).sort((a, b) => new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime());
@@ -681,14 +2221,61 @@ export default function App() {
           // Fallback: refetch
           fetchConversations();
         }
+
+        // Push to live messages feed for the selected instance
+        if (message && instanceId && selectedWooInstanceId && Number(instanceId) === selectedWooInstanceId) {
+          setLiveMessages(prev => {
+            if (message.message_id && prev.some((m: any) => m.message_id === message.message_id)) return prev;
+            const next = [{ ...message, receivedAt: new Date().toISOString() }, ...prev];
+            return next.slice(0, 50);
+          });
+        } else if (message && instanceId && selectedWooInstanceId && message.instance_id && Number(message.instance_id) === selectedWooInstanceId) {
+          setLiveMessages(prev => {
+            if (message.message_id && prev.some((m: any) => m.message_id === message.message_id)) return prev;
+            const next = [{ ...message, receivedAt: new Date().toISOString() }, ...prev];
+            return next.slice(0, 50);
+          });
+        }
       });
 
       newSocket.on("message.status", (data: any) => {
-        console.log('[FRONT_OUTBOUND_RENDER] status update:', data);
         const { messageId, status } = data;
-        setChatMessages(prev => prev.map((m: any) => 
+        setChatMessages(prev => prev.map((m: any) =>
           m.message_id === messageId ? { ...m, delivery_status: status } : m
         ));
+      });
+
+      newSocket.on("instance.health.updated", (data: any) => {
+        setInstances(prev => prev.map(inst =>
+          Number(inst.id) === Number(data.instanceId)
+            ? { ...inst, status: data.status, operational_status: data.operational_status || inst.operational_status }
+            : inst
+        ));
+      });
+
+      newSocket.on("queue.metrics.updated", (data: any) => {
+        setLiveQueueMetrics(data);
+      });
+
+      newSocket.on("support.alert.resolved", (data: any) => {
+        setLiveQueueMetrics((prev: any) => prev ? { ...prev, resolvedAlertId: data.alertId, resolvedAlertAt: data.timestamp } : prev);
+      });
+
+      newSocket.on("support.ticket.created", (ticket: any) => {
+        setSupportTickets(prev => {
+          if (prev.some(item => Number(item.id) === Number(ticket.id))) return prev;
+          return [ticket, ...prev].slice(0, 100);
+        });
+      });
+
+      newSocket.on("support.ticket.updated", (ticket: any) => {
+        setSupportTickets(prev => prev.map(item => Number(item.id) === Number(ticket.id) ? { ...item, ...ticket } : item));
+      });
+
+      newSocket.on("support.ticket.message", (message: any) => {
+        if (message?.sender === 'human') {
+          setSupportChatMessages(prev => [...prev, { sender: 'human', message: message.message, created_at: message.created_at }]);
+        }
       });
 
       setSocket(newSocket);
@@ -699,10 +2286,48 @@ export default function App() {
   }, [auth]);
 
   useEffect(() => {
+    if (auth && selectedWooInstanceId) {
+      fetchWooApiPanel(selectedWooInstanceId);
+    }
+  }, [auth, selectedWooInstanceId]);
+
+  useEffect(() => {
+    if (!auth || !qrModalInstance?.id) return;
+
+    let stopped = false;
+    const refreshQrModal = async () => {
+      const inst = await apiFetch(`/api/whatsapp/instances/${qrModalInstance.id}`);
+      if (stopped || !inst?.id) return;
+
+      setInstances(prev => prev.map(item => item.id === inst.id ? { ...item, ...inst } : item));
+      setQrModalInstance(prev => {
+        if (!prev || prev.id !== inst.id) return prev;
+        if (isConnectedStatus(inst.status)) return null;
+        return { ...prev, ...inst };
+      });
+    };
+
+    refreshQrModal();
+    const interval = window.setInterval(refreshQrModal, 2000);
+    return () => {
+      stopped = true;
+      window.clearInterval(interval);
+    };
+  }, [auth, qrModalInstance?.id]);
+
+  useEffect(() => {
     if (activeConversationId) {
       fetchChatMessages(activeConversationId);
     }
   }, [activeConversationId]);
+
+  useEffect(() => {
+    if (activeTab !== 'messages' || conversations.length === 0) return;
+    const activeConversationExists = conversations.some(conv => conv.id === activeConversationId);
+    if (!activeConversationId || !activeConversationExists) {
+      setActiveConversationId(conversations[0].id);
+    }
+  }, [activeTab, activeConversationId, conversations]);
 
   const handleSearch = async () => {
     if (!searchQuery) return;
@@ -760,8 +2385,8 @@ export default function App() {
         faq_json: newAgent.faq.filter(f => f.q && f.a)
       })
     });
-    setNewAgent({ 
-      name: '', 
+    setNewAgent({
+      name: '',
       system_instruction: '',
       personality: 'Profissional e amigável',
       faq: [{ q: '', a: '' }],
@@ -770,17 +2395,61 @@ export default function App() {
     fetchAgents();
   };
 
-  const createInstance = async (name: string, engine: 'baileys' | 'whatsmeow' = 'baileys') => {
-    await apiFetch('/api/whatsapp/instances', {
+  const createInstance = async (name: string, engine: 'wooapi' = 'wooapi') => {
+    const data = await apiFetch('/api/whatsapp/instances', {
       method: 'POST',
       body: JSON.stringify({ name, engine })
     });
+    if (!data?.id) return;
+    const created = {
+      id: data.id,
+      name,
+      engine,
+      status: 'connecting' as const,
+      qr: null,
+      api_key: data.api_key,
+      webhook_secret: data.webhook_secret,
+      webhook_endpoint: data.webhook?.webhooks_url,
+      webhook: data.webhook
+    };
+    setInstances(prev => [created as Instance, ...prev]);
+    setQrModalInstance(created as Instance);
+    const connectResult = await apiFetch(`/api/whatsapp/instances/${data.id}/connect`, { method: 'POST', body: JSON.stringify({ forceNewQr: true }) });
+    if (connectResult?.qr) {
+      setQrModalInstance({ ...created, status: 'qr_pending', qr: connectResult.qr } as Instance);
+      setInstances(prev => prev.map(inst => inst.id === data.id ? { ...inst, status: 'qr_pending', qr: connectResult.qr } : inst));
+    }
     fetchInstances();
+    if (canUseResellerPanel()) fetchResellerOverview();
+  };
+
+  const createClientAccount = async () => {
+    if (!newClient.name || !newClient.owner_name || !newClient.owner_email || !newClient.password) return;
+    const data = await apiFetch('/api/reseller/clients', {
+      method: 'POST',
+      body: JSON.stringify(newClient)
+    });
+    if (!data?.id) return;
+    setNewClient({ name: '', owner_name: '', owner_email: '', password: '', instance_quota: 1, max_client_accounts: 0 });
+    fetchClientAccounts();
+    fetchResellerOverview();
   };
 
   const connectInstance = async (id: number) => {
-    await apiFetch(`/api/whatsapp/instances/${id}/connect`, { method: 'POST' });
-    setInstances(prev => prev.map(inst => inst.id === id ? { ...inst, status: 'connecting' } : inst));
+    const inst = instances.find(i => i.id === id);
+    if (inst) setQrModalInstance({ ...inst, status: 'connecting', qr: undefined });
+    setInstances(prev => prev.map(i => i.id === id ? { ...i, status: 'connecting', qr: undefined } : i));
+    const connectResult = await apiFetch(`/api/whatsapp/instances/${id}/connect`, { method: 'POST', body: JSON.stringify({ forceNewQr: true }) });
+    if (connectResult?.qr) {
+      // Re-open modal even if it was closed between the POST call and the response (race condition fix)
+      setQrModalInstance(prev => {
+        if (prev?.id === id) return { ...prev, status: 'qr_pending', qr: connectResult.qr };
+        const currentInst = instances.find(i => i.id === id);
+        return currentInst ? { ...currentInst, status: 'qr_pending', qr: connectResult.qr } : prev;
+      });
+      setInstances(prev => prev.map(i => i.id === id ? { ...i, status: 'qr_pending', qr: connectResult.qr } : i));
+    }
+    fetchInstances();
   };
 
   const logoutInstance = async (id: number) => {
@@ -791,6 +2460,29 @@ export default function App() {
   const deleteInstance = async (id: number) => {
     await apiFetch(`/api/whatsapp/instances/${id}`, { method: 'DELETE' });
     fetchInstances();
+    if (canUseResellerPanel()) fetchResellerOverview();
+  };
+
+  const regenerateInstanceApiKey = async (id: number) => {
+    if (!confirm('Regenerar a API key desta instância? Integrações antigas vão parar até atualizar a chave.')) return;
+    const data = await apiFetch(`/api/whatsapp/instances/${id}/api-key/regenerate`, { method: 'POST' });
+    if (data?.api_key) {
+      setInstances(prev => prev.map(inst => inst.id === id ? { ...inst, api_key: data.api_key } : inst));
+      navigator.clipboard?.writeText(data.api_key).catch(() => null);
+      alert('Nova API key gerada e copiada.');
+    }
+  };
+
+  const copyInstanceApiKey = (apiKey?: string) => {
+    if (!apiKey) return alert('API key disponível apenas logo após criar ou regenerar a chave.');
+    navigator.clipboard?.writeText(apiKey).catch(() => null);
+  };
+
+  const copyInstanceWebhook = (inst: Instance) => {
+    const endpoint = inst.webhook?.webhooks_url || inst.webhook_endpoint;
+    if (!endpoint) return alert('Endpoint de webhook indisponivel para esta instancia.');
+    navigator.clipboard?.writeText(endpoint).catch(() => null);
+    alert('Endpoint de webhook copiado.');
   };
 
   const sendMessage = async () => {
@@ -801,26 +2493,24 @@ export default function App() {
       return;
     }
 
-    // Get instanceId — fallback to first connected instance
-    const instanceId = conv.instance_id || instances.find(i => i.status === 'open')?.id;
+    const activeInstance = findConnectedInstance(instances, conv.instance_id);
+    const instanceId = activeInstance?.id;
     if (!instanceId) {
       alert("Erro: Nenhuma instância conectada.");
       return;
     }
 
     // Build the target JID
-    let targetJid = conv.group_jid || conv.contact_phone || '';
+    let targetJid = conv.remote_jid || conv.group_jid || conv.contact_phone || '';
     if (targetJid && !targetJid.includes('@')) {
       // Check if it looks like a phone number (starts with digits, 10-15 chars)
       // or a LID (longer than 15 chars)
-      if (targetJid.length > 15) {
+      if (targetJid.length >= 15) {
         targetJid = `${targetJid}@lid`;
       } else {
         targetJid = `${targetJid}@s.whatsapp.net`;
       }
     }
-
-    console.log("[SEND_DEBUG]", { instanceId, targetJid, convInstanceId: conv.instance_id, contactPhone: conv.contact_phone });
 
     if (!targetJid) {
       alert("Erro: Destinatário inválido");
@@ -855,9 +2545,12 @@ export default function App() {
           conversationId: activeConversationId
         })
       });
+      if (result?.error || result?.success === false) {
+        throw new Error(result.error || result.message || 'Falha ao enviar mensagem');
+      }
 
       if (result?.providerMessageId) {
-        setChatMessages(prev => prev.map(m => 
+        setChatMessages(prev => prev.map(m =>
           m.message_id === optimisticMsg.message_id
             ? { ...m, message_id: result.providerMessageId, delivery_status: 'sent' }
             : m
@@ -865,7 +2558,7 @@ export default function App() {
       }
     } catch (e: any) {
       console.error("[SEND_ERROR]", e);
-      setChatMessages(prev => prev.map(m => 
+      setChatMessages(prev => prev.map(m =>
         m.message_id === optimisticMsg.message_id
           ? { ...m, delivery_status: 'failed' }
           : m
@@ -877,12 +2570,13 @@ export default function App() {
     if (!activeConversationId) return;
     const conv = conversations.find(c => c.id === activeConversationId);
     if (!conv) return;
-    const instanceId = conv.instance_id || instances.find(i => i.status === 'open')?.id;
+    const activeInstance = findConnectedInstance(instances, conv.instance_id);
+    const instanceId = activeInstance?.id;
     if (!instanceId) return;
 
-    let targetJid = conv.group_jid || conv.contact_phone || '';
+    let targetJid = conv.remote_jid || conv.group_jid || conv.contact_phone || '';
     if (targetJid && !targetJid.includes('@')) {
-      targetJid = targetJid.length > 15 ? `${targetJid}@lid` : `${targetJid}@s.whatsapp.net`;
+      targetJid = targetJid.length >= 15 ? `${targetJid}@lid` : `${targetJid}@s.whatsapp.net`;
     }
 
     const optimisticMsg: any = {
@@ -911,6 +2605,9 @@ export default function App() {
           contentType: type
         })
       });
+      if (result?.error || result?.success === false) {
+        throw new Error(result.error || result.message || 'Falha ao enviar midia');
+      }
       if (result?.providerMessageId) {
         setChatMessages(prev => prev.map(m => m.message_id === optimisticMsg.message_id ? { ...m, delivery_status: 'sent', message_id: result.providerMessageId } : m));
       }
@@ -929,7 +2626,10 @@ export default function App() {
     try {
       const response = await fetch(`${API_URL}/api/upload`, {
         method: 'POST',
-        headers: { 'x-account-id': auth?.accountId?.toString() || '' },
+        headers: {
+          'x-account-id': auth?.accountId?.toString() || '',
+          ...(auth?.token ? { 'Authorization': `Bearer ${auth.token}` } : {})
+        },
         body: formData
       });
       const data = await response.json();
@@ -952,6 +2652,57 @@ export default function App() {
     if (activeConversationId === id) setActiveConversationId(null);
     fetchConversations();
   };
+
+  const updateConversationMeta = async (id: number, payload: any) => {
+    const updated = await apiFetch(`/api/conversations/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload)
+    });
+    if (updated) {
+      setConversations(prev => prev.map(c => c.id === id ? { ...c, ...updated } : c));
+    }
+  };
+
+  const addConversationTag = async (conv: Conversation, tag: string) => {
+    const cleanTag = tag.trim();
+    if (!cleanTag) return;
+    const tags = JSON.parse(conv.tags_json || '[]');
+    if (!tags.includes(cleanTag)) tags.push(cleanTag);
+    await updateConversationMeta(conv.id, { tags });
+  };
+
+  const isIgnoredConversation = (conv: Conversation) => {
+    const jid = `${conv.remote_jid || ''} ${conv.group_jid || ''} ${conv.contact_phone || ''}`.toLowerCase();
+    return jid.includes('@newsletter') || jid.includes('@broadcast') || jid.includes('status@broadcast');
+  };
+
+  const mediaPreviewKind = (value?: string) => {
+    const clean = String(value || '').trim().toLowerCase();
+    if (['[image]', '[imagem]', 'image', 'imagem'].includes(clean)) return 'image';
+    if (['[video]', 'video'].includes(clean)) return 'video';
+    if (['[audio]', 'audio'].includes(clean)) return 'audio';
+    if (['[document]', '[documento]', 'document', 'documento'].includes(clean)) return 'document';
+    return null;
+  };
+
+  const isRenderableMediaUrl = (value?: string) => {
+    const url = String(value || '').trim();
+    return url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:') || url.startsWith('/uploads/');
+  };
+
+  const sameOriginMediaUrl = (value?: string) => {
+    const url = String(value || '').trim();
+    if (!url) return '';
+    try {
+      const parsed = new URL(url);
+      if ((parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost') && parsed.pathname.startsWith('/uploads/')) {
+        return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+      }
+    } catch {}
+    return url;
+  };
+
+  const conversationInitial = (conv?: Conversation) => (conv?.title || conv?.contact_phone || conv?.remote_jid || '?').charAt(0);
 
   const deleteChatMessage = async (id: number) => {
     if (!confirm("Excluir esta mensagem?")) return;
@@ -1053,7 +2804,7 @@ export default function App() {
     if (!agent) return;
 
     // Use the first connected instance
-    const activeInstance = instances.find(inst => inst.status === 'open');
+    const activeInstance = instances.find(inst => isConnectedStatus(inst.status));
     if (!activeInstance) {
       alert("Nenhuma instância conectada para realizar o disparo.");
       return;
@@ -1078,10 +2829,10 @@ export default function App() {
 
             await apiFetch('/api/whatsapp/send', {
               method: 'POST',
-              body: JSON.stringify({ 
+              body: JSON.stringify({
                 instanceId: activeInstance.id,
-                jid, 
-                message 
+                jid,
+                message
               })
             });
 
@@ -1102,7 +2853,7 @@ export default function App() {
 
   // Replaced with logoutInstance
   const logoutWhatsApp = async () => {
-    const activeInstance = instances.find(inst => inst.status === 'open');
+    const activeInstance = instances.find(inst => isConnectedStatus(inst.status));
     if (activeInstance) {
       await logoutInstance(activeInstance.id);
     }
@@ -1113,10 +2864,10 @@ export default function App() {
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
         <Card className="w-full max-w-md p-8">
           <div className="text-center mb-8">
-            <div className="w-16 h-16 bg-emerald-500 text-white rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-emerald-200">
+            <div className="w-16 h-16 bg-primary text-white rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-slate-200">
               <Send size={32} />
             </div>
-            <h1 className="text-2xl font-bold text-slate-900">Wasenderbr SaaS</h1>
+            <h1 className="text-2xl font-bold text-slate-900">WooAPI</h1>
             <p className="text-slate-500">Acesse sua plataforma de automação</p>
           </div>
 
@@ -1129,13 +2880,14 @@ export default function App() {
                   <input
                     type="text"
                     placeholder="Sua Empresa Ltda"
-                    className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                    className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-900/10"
                     value={authForm.companyName}
                     onChange={e => setAuthForm({ ...authForm, companyName: e.target.value })}
                   />
                 </div>
               </div>
             )}
+            {authMode === 'register' && (
             <div>
               <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Seu Nome</label>
               <div className="relative">
@@ -1143,12 +2895,13 @@ export default function App() {
                 <input
                   type="text"
                   placeholder="João Silva"
-                  className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                  className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-900/10"
                   value={authForm.name}
                   onChange={e => setAuthForm({ ...authForm, name: e.target.value })}
                 />
               </div>
             </div>
+            )}
             <div>
               <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">E-mail</label>
               <div className="relative">
@@ -1156,7 +2909,7 @@ export default function App() {
                 <input
                   type="email"
                   placeholder="seu@email.com"
-                  className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                  className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-900/10"
                   value={authForm.email}
                   onChange={e => setAuthForm({ ...authForm, email: e.target.value })}
                 />
@@ -1169,7 +2922,7 @@ export default function App() {
                 <input
                   type="password"
                   placeholder="••••••••"
-                  className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                  className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-900/10"
                   value={authForm.password}
                   onChange={e => setAuthForm({ ...authForm, password: e.target.value })}
                 />
@@ -1178,15 +2931,15 @@ export default function App() {
 
             <button
               onClick={authMode === 'login' ? handleLogin : handleRegister}
-              className="w-full py-4 bg-emerald-500 text-white font-bold rounded-xl hover:bg-emerald-600 transition-all shadow-lg shadow-emerald-200"
+              className="w-full py-4 bg-primary text-white font-bold rounded-xl hover:bg-primary/90 transition-all shadow-lg shadow-slate-200"
             >
               {authMode === 'login' ? 'Entrar' : 'Criar Conta'}
             </button>
 
             <div className="text-center pt-4">
-              <button 
+              <button
                 onClick={() => setAuthMode(authMode === 'login' ? 'register' : 'login')}
-                className="text-sm text-emerald-600 font-medium hover:underline"
+                className="text-sm text-primary font-medium hover:underline"
               >
                 {authMode === 'login' ? 'Não tem uma conta? Cadastre-se' : 'Já tem uma conta? Faça login'}
               </button>
@@ -1197,56 +2950,80 @@ export default function App() {
     );
   }
 
+  if (activeTab === 'super_admin' && auth.user.role === 'super_admin') {
+    return (
+      <div className="min-h-screen bg-[#f4f5f7] font-sans text-slate-900">
+        <SuperAdminPanel
+          apiFetch={apiFetch}
+          onImpersonate={handleImpersonate}
+          onLogout={handleLogout}
+          onBackToAccount={() => setActiveTab('dashboard')}
+          authUser={auth.user}
+        />
+      </div>
+    );
+  }
+
+  const selectedWooInstance = instances.find(inst => inst.id === selectedWooInstanceId) || instances[0];
+  const selectedWebhookFailures = webhookLogs.filter(log => !log.success).length;
+  const selectedWebhookSuccess = webhookLogs.filter(log => log.success).length;
+  const trialEndsAt = auth.account?.trial_ends_at ? new Date(auth.account.trial_ends_at) : null;
+  const trialTimeLeft = trialEndsAt
+    ? Math.max(0, trialEndsAt.getTime() - Date.now())
+    : 0;
+  const trialHoursLeft = Math.floor(trialTimeLeft / 3600000);
+  const trialMinutesLeft = Math.ceil((trialTimeLeft % 3600000) / 60000);
+  const isTrialAccount = auth.account?.status === 'trial';
+
   return (
-    <div className="flex h-screen bg-slate-50 font-sans text-slate-900">
+    <div className="flex h-screen bg-main-bg font-sans text-slate-900">
       {/* Sidebar */}
-      <aside className="w-64 bg-white border-r border-slate-200 p-6 flex flex-col gap-8">
+      <aside className="w-64 bg-sidebar-bg border-r border-white/10 p-6 flex flex-col gap-8">
         <div className="flex items-center gap-3 px-2">
-          <div className="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center text-white shadow-lg shadow-emerald-200">
+          <div className="w-10 h-10 bg-primary rounded-md flex items-center justify-center text-white">
             <Send size={24} />
           </div>
-          <h1 className="text-xl font-bold tracking-tight text-slate-800">Wasenderbr</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-white">WooAPI</h1>
         </div>
 
         <nav className="flex flex-col gap-2">
           <SidebarItem icon={LayoutDashboard} label="Dashboard" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} href="#dashboard" />
+          <SidebarItem icon={QrCode} label="Instâncias API" active={activeTab === 'whatsapp'} onClick={() => setActiveTab('whatsapp')} href="#whatsapp" />
+          <SidebarItem icon={Activity} label="Saúde da Plataforma" active={activeTab === 'wooapi_monitor'} onClick={() => setActiveTab('wooapi_monitor')} href="#wooapi_monitor" />
+          <SidebarItem icon={Building2} label="Clientes SaaS" active={activeTab === 'clients'} onClick={() => setActiveTab('clients')} href="#clients" />
           <SidebarItem icon={MessagesSquare} label="Mensagens" active={activeTab === 'messages'} onClick={() => setActiveTab('messages')} href="#messages" />
-          <SidebarItem icon={Bot} label="Agentes IA" active={activeTab === 'agents'} onClick={() => setActiveTab('agents')} href="#agents" />
-          <SidebarItem icon={LayoutDashboard} label="Kanban" active={activeTab === 'kanban'} onClick={() => setActiveTab('kanban')} href="#kanban" />
-          <SidebarItem icon={Calendar} label="Agenda" active={activeTab === 'agenda'} onClick={() => setActiveTab('agenda')} href="#agenda" />
-          <SidebarItem icon={Search} label="Captar Leads" active={activeTab === 'search'} onClick={() => setActiveTab('search')} href="#search" />
-          <SidebarItem icon={Users} label="Meus Leads" active={activeTab === 'leads'} onClick={() => setActiveTab('leads')} href="#leads" />
-          <SidebarItem icon={MessageSquare} label="Campanhas" active={activeTab === 'campaigns'} onClick={() => setActiveTab('campaigns')} href="#campaigns" />
-          <SidebarItem icon={QrCode} label="Conexão WhatsApp" active={activeTab === 'whatsapp'} onClick={() => setActiveTab('whatsapp')} href="#whatsapp" />
+          <SidebarItem icon={MessageSquare} label="Integrações" active={activeTab === 'api_docs'} onClick={() => setActiveTab('api_docs')} href="#api_docs" />
+          <SidebarItem icon={Puzzle} label="Conectores" active={activeTab === 'integrations'} onClick={() => setActiveTab('integrations')} href="#integrations" />
+          <SidebarItem icon={LifeBuoy} label="Suporte" active={activeTab === 'support'} onClick={() => setActiveTab('support')} href="#support" />
           <SidebarItem icon={Settings} label="Configurações" active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} href="#settings" />
           {auth.user.role === 'super_admin' && (
-            <SidebarItem icon={Lock} label="Super Admin" active={activeTab === 'super_admin'} onClick={() => setActiveTab('super_admin')} href="#super_admin" />
+            <SidebarItem icon={Lock} label="Console Global" active={activeTab === 'super_admin'} onClick={() => setActiveTab('super_admin')} href="#super_admin" />
           )}
         </nav>
 
-        <div className="mt-auto pt-6 border-t border-slate-100 space-y-4">
+        <div className="mt-auto pt-6 border-t border-white/10 space-y-4">
           <div className={cn(
-            "p-4 rounded-2xl flex items-center gap-3",
-            wsStatus.status === 'open' ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"
+            "p-4 rounded-md flex items-center gap-3",
+            isConnectedStatus(wsStatus.status) ? "bg-white/10 text-white" : "bg-white/10 text-sidebar-item"
           )}>
-            <div className={cn("w-2 h-2 rounded-full", wsStatus.status === 'open' ? "bg-emerald-500" : "bg-amber-500")} />
+            <div className="w-2 h-2 rounded-full bg-primary" />
             <span className="text-xs font-semibold uppercase tracking-wider">
-              {wsStatus.status === 'open' ? 'WhatsApp Conectado' : 'WhatsApp Desconectado'}
+              {isConnectedStatus(wsStatus.status) ? 'WhatsApp Conectado' : 'WhatsApp Desconectado'}
             </span>
           </div>
 
           <div className="flex items-center gap-3 px-4 py-3">
-            <div className="w-8 h-8 bg-emerald-100 text-emerald-600 rounded-lg flex items-center justify-center font-bold text-xs">
-              {auth.user.name.charAt(0)}
+            <div className="w-8 h-8 bg-white/10 text-white rounded-md flex items-center justify-center font-bold text-xs">
+              {displayText(auth.user.name, 'U').charAt(0)}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-bold text-slate-900 truncate">{auth.user.name}</p>
-              <p className="text-[10px] text-slate-500 truncate">{auth.user.email}</p>
+              <p className="text-xs font-bold text-white truncate">{displayText(auth.user.name, 'Usuario')}</p>
+              <p className="text-[10px] text-white/50 truncate">{displayText(auth.user.email)}</p>
             </div>
           </div>
-          <button 
+          <button
             onClick={handleLogout}
-            className="flex items-center gap-3 w-full px-4 py-3 text-slate-500 hover:bg-red-50 hover:text-red-600 rounded-xl transition-all"
+            className="flex items-center gap-3 w-full px-4 py-3 text-sidebar-item hover:bg-white/5 hover:text-white rounded-md transition-all"
           >
             <LogOut size={18} />
             <span className="text-sm font-medium">Sair</span>
@@ -1255,7 +3032,17 @@ export default function App() {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-y-auto p-10">
+      <main className={cn("flex-1 bg-main-bg", activeTab === 'messages' ? "overflow-hidden p-0" : "overflow-y-auto p-6")}>
+        {isTrialAccount && activeTab !== 'messages' && (
+          <div className="mb-5 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <strong>Conta teste:</strong> esta conta dura 2 horas e sera excluida automaticamente com instancias, mensagens, webhooks e logs criados no teste.
+            {trialEndsAt && (
+              <span className="ml-1 font-bold">
+                Tempo restante aproximado: {trialHoursLeft}h {trialMinutesLeft}min.
+              </span>
+            )}
+          </div>
+        )}
         <AnimatePresence mode="wait">
           {activeTab === 'dashboard' && (
             <motion.div
@@ -1266,74 +3053,201 @@ export default function App() {
               className="space-y-8"
             >
               <header>
-                <h2 className="text-3xl font-bold text-slate-900">Bem-vindo ao Wasenderbr</h2>
-                <p className="text-slate-500 mt-1">Gerencie sua captação e automação de vendas.</p>
+                <h2 className="text-3xl font-bold text-slate-900">Painel da Conta WooAPI</h2>
+                <p className="text-slate-500 mt-1">Operacao da sua conta: instancias, mensagens, clientes, integracoes e configuracoes.</p>
               </header>
+
+              {auth.user.role === 'super_admin' && (
+                <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                  <strong>Painel da Conta:</strong> use esta area para operar instancias, mensagens e clientes da conta atual. O <strong>Console Global</strong> no menu e reservado para administracao da plataforma inteira.
+                </div>
+              )}
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <Card className="p-6">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm font-medium text-slate-500">Total de Leads</p>
-                      <h3 className="text-3xl font-bold mt-1">{leads.length}</h3>
+                      <p className="text-sm font-medium text-slate-500">Instâncias</p>
+                      <h3 className="text-3xl font-bold mt-1">{instances.length}</h3>
                     </div>
-                    <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center">
-                      <Users size={24} />
-                    </div>
-                  </div>
-                </Card>
-                <Card className="p-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-slate-500">Agentes Ativos</p>
-                      <h3 className="text-3xl font-bold mt-1">{agents.length}</h3>
-                    </div>
-                    <div className="w-12 h-12 bg-purple-50 text-purple-600 rounded-xl flex items-center justify-center">
-                      <Bot size={24} />
+                    <div className="w-12 h-12 bg-slate-50 text-primary rounded-xl flex items-center justify-center">
+                      <Smartphone size={24} />
                     </div>
                   </div>
                 </Card>
                 <Card className="p-6">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm font-medium text-slate-500">Status WhatsApp</p>
-                      <h3 className="text-xl font-bold mt-1 uppercase">{wsStatus.status === 'open' ? 'Conectado' : 'Desconectado'}</h3>
+                      <p className="text-sm font-medium text-slate-500">Conectadas</p>
+                      <h3 className="text-3xl font-bold mt-1">{instances.filter(i => isConnectedStatus(i.status)).length}</h3>
                     </div>
-                    <div className={cn(
-                      "w-12 h-12 rounded-xl flex items-center justify-center",
-                      wsStatus.status === 'open' ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"
-                    )}>
-                      <MessageSquare size={24} />
+                    <div className="w-12 h-12 bg-slate-50 text-primary rounded-xl flex items-center justify-center">
+                      <CheckCircle2 size={24} />
+                    </div>
+                  </div>
+                </Card>
+                <Card className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-slate-500">Clientes SaaS</p>
+                      <h3 className="text-3xl font-bold mt-1">{clientAccounts.length}</h3>
+                    </div>
+                    <div className="w-12 h-12 bg-slate-50 text-primary rounded-xl flex items-center justify-center">
+                      <Building2 size={24} />
                     </div>
                   </div>
                 </Card>
               </div>
 
               <Card className="p-6">
-                <h3 className="text-lg font-bold mb-4">Últimos Leads Captados</h3>
-                <div className="overflow-x-auto">
+                <h3 className="text-lg font-bold mb-4">Operação SaaS</h3>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div className="p-4 bg-slate-50 border border-slate-100 rounded-md">
+                    <p className="text-xs uppercase font-bold text-slate-400">Cota de instâncias</p>
+                    <p className="text-2xl font-black mt-1">{displayNumber(resellerOverview?.usage?.instances)}/{displayText(resellerOverview?.plan?.max_instances)}</p>
+                  </div>
+                  <div className="p-4 bg-slate-50 border border-slate-100 rounded-md">
+                    <p className="text-xs uppercase font-bold text-slate-400">Alocadas a clientes</p>
+                    <p className="text-2xl font-black mt-1">{displayNumber(resellerOverview?.usage?.allocated_child_instances)}</p>
+                  </div>
+                  <div className="p-4 bg-slate-50 border border-slate-100 rounded-md">
+                    <p className="text-xs uppercase font-bold text-slate-400">Disponíveis</p>
+                    <p className="text-2xl font-black mt-1">{displayText(resellerOverview?.available_instances)}</p>
+                  </div>
+                  <div className="p-4 bg-slate-50 border border-slate-100 rounded-md">
+                    <p className="text-xs uppercase font-bold text-slate-400">Integrações</p>
+                    <p className="text-2xl font-black mt-1">n8n / Chatwoot / Typebot</p>
+                  </div>
+                </div>
+              </Card>
+            </motion.div>
+          )}
+
+          {activeTab === 'clients' && (
+            <motion.div
+              key="clients"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-6"
+            >
+              <header>
+                <h2 className="text-3xl font-bold">Clientes SaaS</h2>
+                <p className="text-slate-500">Crie contas clientes com cotas próprias de instâncias WooAPI.</p>
+              </header>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <Card className="p-5">
+                  <p className="text-xs uppercase font-bold text-slate-400">Clientes usados</p>
+                  <p className="text-3xl font-black mt-1">{displayNumber(resellerOverview?.usage?.client_accounts)}/{displayText(resellerOverview?.plan?.max_client_accounts)}</p>
+                </Card>
+                <Card className="p-5">
+                  <p className="text-xs uppercase font-bold text-slate-400">Instâncias disponíveis</p>
+                  <p className="text-3xl font-black mt-1">{displayText(resellerOverview?.available_instances)}</p>
+                </Card>
+                <Card className="p-5">
+                  <p className="text-xs uppercase font-bold text-slate-400">Instâncias alocadas</p>
+                  <p className="text-3xl font-black mt-1">{displayNumber(resellerOverview?.usage?.allocated_child_instances)}</p>
+                </Card>
+              </div>
+
+              <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
+                <Card className="p-5 h-fit">
+                  <h3 className="text-lg font-bold mb-4">Novo cliente</h3>
+                  <div className="space-y-3">
+                    <input className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-md text-sm" placeholder="Empresa" value={newClient.name} onChange={e => setNewClient({ ...newClient, name: e.target.value })} />
+                    <input className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-md text-sm" placeholder="Nome do admin" value={newClient.owner_name} onChange={e => setNewClient({ ...newClient, owner_name: e.target.value })} />
+                    <input className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-md text-sm" placeholder="E-mail do admin" value={newClient.owner_email} onChange={e => setNewClient({ ...newClient, owner_email: e.target.value })} />
+                    <input className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-md text-sm" placeholder="Senha inicial" type="password" value={newClient.password} onChange={e => setNewClient({ ...newClient, password: e.target.value })} />
+                    <div className="grid grid-cols-2 gap-2">
+                      <input className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-md text-sm" type="number" min="0" value={newClient.instance_quota} onChange={e => setNewClient({ ...newClient, instance_quota: Number(e.target.value) })} />
+                      <input className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-md text-sm" type="number" min="0" value={newClient.max_client_accounts} onChange={e => setNewClient({ ...newClient, max_client_accounts: Number(e.target.value) })} />
+                    </div>
+                    <button onClick={createClientAccount} className="w-full py-3 bg-primary text-white font-bold rounded-md">Criar cliente</button>
+                  </div>
+                </Card>
+
+                <Card className="xl:col-span-3 overflow-hidden">
                   <table className="w-full text-left">
                     <thead>
-                      <tr className="border-b border-slate-100 text-slate-400 text-xs font-semibold uppercase tracking-wider">
-                        <th className="pb-4 px-4">Nome</th>
-                        <th className="pb-4 px-4">Telefone</th>
-                        <th className="pb-4 px-4">Nicho</th>
-                        <th className="pb-4 px-4">Data</th>
+                      <tr className="bg-slate-50 border-b border-slate-100 text-slate-400 text-xs font-semibold uppercase tracking-wider">
+                        <th className="py-4 px-6">Conta</th>
+                        <th className="py-4 px-6">Cota</th>
+                        <th className="py-4 px-6">Uso</th>
+                        <th className="py-4 px-6">Status</th>
                       </tr>
                     </thead>
                     <tbody className="text-sm">
-                      {leads.slice(0, 5).map((lead, i) => (
-                        <tr key={i} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50 transition-colors">
-                          <td className="py-4 px-4 font-medium">{lead.name}</td>
-                          <td className="py-4 px-4 text-slate-500 font-mono">{lead.phone}</td>
-                          <td className="py-4 px-4"><span className="px-2 py-1 bg-slate-100 rounded-lg text-xs">{lead.niche}</span></td>
-                          <td className="py-4 px-4 text-slate-400">Recente</td>
+                      {clientAccounts.map((client) => (
+                        <tr key={client.id} className="border-b border-slate-50 last:border-0">
+                          <td className="py-4 px-6">
+                            <p className="font-bold">{client.name}</p>
+                            <p className="text-xs text-slate-400">{client.owner_email}</p>
+                          </td>
+                          <td className="py-4 px-6">{client.instance_quota || 0} instâncias</td>
+                          <td className="py-4 px-6">{client.usage?.instances || 0}/{client.instance_quota || 0}</td>
+                          <td className="py-4 px-6">
+                            <span className={cn("px-2 py-1 rounded text-xs font-bold", client.status === 'active' ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700")}>
+                              {client.status || 'active'}
+                            </span>
+                          </td>
                         </tr>
                       ))}
+                      {clientAccounts.length === 0 && (
+                        <tr>
+                          <td className="py-8 px-6 text-slate-400 text-center" colSpan={4}>Nenhum cliente criado ainda.</td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
+                </Card>
+              </div>
+            </motion.div>
+          )}
+
+          {activeTab === 'api_docs' && (
+            <motion.div
+              key="api_docs"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-6"
+            >
+              <header>
+                <h2 className="text-3xl font-bold">Integrações WooAPI</h2>
+                <p className="text-slate-500">Use a mesma instância para n8n, Chatwoot, Typebot, webhook e websocket.</p>
+              </header>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {[
+                  ['n8n', 'Use HTTP Request com a API key da instância para enviar mensagens e receba eventos no webhook do workflow.'],
+                  ['Chatwoot', 'Configure o webhook da caixa de entrada apontando para WooAPI ou use a API para entregar mensagens ao inbox.'],
+                  ['Typebot', 'Chame endpoints WooAPI em blocos HTTP e use webhooks para continuar fluxos quando uma resposta chegar.']
+                ].map(([title, text]) => (
+                  <Card key={title} className="p-5">
+                    <h3 className="text-lg font-bold">{title}</h3>
+                    <p className="text-sm text-slate-500 mt-2">{text}</p>
+                  </Card>
+                ))}
+              </div>
+
+              <Card className="p-6">
+                <h3 className="text-lg font-bold mb-4">Endpoints principais</h3>
+                <div className="space-y-3 text-sm font-mono">
+                  <p><span className="text-primary font-bold">POST</span> /api/v1/instances/:id/send-text</p>
+                  <p><span className="text-primary font-bold">POST</span> /api/v1/instances/:id/send-media</p>
+                  <p><span className="text-primary font-bold">PATCH</span> /api/whatsapp/instances/:id/webhook</p>
+                  <p><span className="text-primary font-bold">WS</span> socket.io eventos instance.status, instance.qr e message.received</p>
                 </div>
               </Card>
+            </motion.div>
+          )}
+
+          {activeTab === 'integrations' && (
+            <motion.div
+              key="integrations"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+            >
+              <IntegrationManager apiFetch={apiFetch} />
             </motion.div>
           )}
 
@@ -1367,12 +3281,12 @@ export default function App() {
                     { n: 'Móveis', k: 'planejados, decoração, sofá' },
                     { n: 'Veículos', k: 'carros, seminovos, revenda' }
                   ].map((niche, i) => (
-                    <button 
+                    <button
                       key={i}
                       onClick={() => setSearchQuery(`${niche.n} em São Paulo`)}
-                      className="p-3 bg-slate-50 border border-slate-100 rounded-xl text-left hover:border-emerald-500 transition-all group"
+                      className="p-3 bg-slate-50 border border-slate-100 rounded-xl text-left hover:border-primary transition-all group"
                     >
-                      <p className="text-sm font-bold group-hover:text-emerald-600">{niche.n}</p>
+                      <p className="text-sm font-bold group-hover:text-primary">{niche.n}</p>
                       <p className="text-[10px] text-slate-400 truncate">{niche.k}</p>
                     </button>
                   ))}
@@ -1386,7 +3300,7 @@ export default function App() {
                     <input
                       type="text"
                       placeholder="Ex: Restaurantes em São Paulo, Dentistas no Rio..."
-                      className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+                      className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-primary transition-all"
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                     />
@@ -1394,7 +3308,7 @@ export default function App() {
                   <button
                     onClick={handleSearch}
                     disabled={loading}
-                    className="px-8 py-3 bg-emerald-500 text-white font-bold rounded-xl hover:bg-emerald-600 disabled:opacity-50 transition-all flex items-center gap-2"
+                    className="px-8 py-3 bg-primary text-white font-bold rounded-xl hover:bg-primary/90 disabled:opacity-50 transition-all flex items-center gap-2"
                   >
                     {loading ? <RefreshCw className="animate-spin" size={20} /> : <Search size={20} />}
                     Pesquisar
@@ -1409,7 +3323,7 @@ export default function App() {
                     <button
                       onClick={saveLeads}
                       disabled={loading}
-                      className="px-6 py-2 bg-emerald-50 text-emerald-700 font-bold rounded-xl hover:bg-emerald-100 transition-all flex items-center gap-2"
+                      className="px-6 py-2 bg-slate-50 text-slate-700 font-bold rounded-xl hover:bg-slate-100 transition-all flex items-center gap-2"
                     >
                       <Plus size={20} />
                       Salvar na Minha Lista
@@ -1425,7 +3339,7 @@ export default function App() {
                             <span className="font-mono">{res.phone}</span>
                           </div>
                         </div>
-                        <div className="w-8 h-8 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center">
+                        <div className="w-8 h-8 bg-slate-100 text-primary rounded-full flex items-center justify-center">
                           <CheckCircle2 size={18} />
                         </div>
                       </div>
@@ -1449,7 +3363,7 @@ export default function App() {
                   <p className="text-slate-500">Lista de contatos captados e validados.</p>
                 </div>
                 <div className="flex gap-2">
-                   <select 
+                   <select
                     className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none"
                     onChange={(e) => {
                       if (e.target.value) sendBroadcast(Number(e.target.value));
@@ -1482,7 +3396,7 @@ export default function App() {
                         <td className="py-4 px-6">
                           <span className={cn(
                             "px-2 py-1 rounded-lg text-xs font-bold uppercase tracking-tighter",
-                            lead.status === 'pending' ? "bg-amber-50 text-amber-600" : "bg-emerald-50 text-emerald-600"
+                            lead.status === 'pending' ? "bg-amber-50 text-amber-600" : "bg-slate-50 text-primary"
                           )}>
                             {lead.status}
                           </span>
@@ -1500,124 +3414,234 @@ export default function App() {
               key="messages"
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="h-[calc(100vh-160px)] flex border border-slate-200 rounded-3xl bg-white overflow-hidden shadow-sm"
+              className="h-full flex flex-col border-0 rounded-none bg-white overflow-hidden shadow-none"
             >
+               <div className="hidden">
+                <div className="flex items-center gap-5">
+                  <div className="w-8 h-8 rounded-md bg-white/10 text-white flex items-center justify-center font-bold text-sm leading-none">W</div>
+                  <nav className="hidden xl:flex items-center gap-1 text-[13px] font-semibold">
+                    {['Início', 'Tarefas', 'Empresas', 'Pessoas', 'Negócios', 'Relatórios'].map((item) => (
+                      <span
+                        key={item}
+                        className={cn(
+                          "px-3 py-2 rounded-lg text-white/75",
+                          item === 'Pessoas' && "bg-white/10 text-white"
+                        )}
+                      >
+                        {item}
+                      </span>
+                    ))}
+                  </nav>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="relative hidden md:block">
+                    <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                    <input
+                      className="w-64 h-9 rounded-md bg-white/95 pl-3 pr-9 text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-primary/30"
+                      placeholder="Buscar"
+                    />
+                  </div>
+                  <button className="px-4 h-9 rounded-md bg-white text-sidebar-bg text-xs font-bold hover:bg-slate-100 transition-colors">
+                    Gerar leads
+                  </button>
+                  <div className="w-8 h-8 rounded-full border border-white/40 flex items-center justify-center text-[11px] font-bold">GU</div>
+                </div>
+              </div>
+              <div className="grid flex-1 min-h-0 bg-main-bg xl:grid-cols-[minmax(360px,430px)_minmax(0,1fr)_minmax(310px,350px)] lg:grid-cols-[360px_minmax(0,1fr)]">
               {/* Conversations Sidebar */}
-              <div className="w-80 border-r border-slate-100 flex flex-col bg-slate-50/30">
-                <div className="p-4 border-b border-slate-100 bg-white space-y-3">
-                  <div className="flex bg-slate-100 p-1 rounded-xl gap-1">
-                    <button 
+              <div className="border-r border-slate-200 flex flex-col bg-white text-slate-900 min-w-0">
+                <div className="p-5 border-b border-slate-200 bg-white space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h2 className="text-[18px] font-extrabold text-slate-950">Atendimento</h2>
+                      <p className="text-xs text-slate-500">{conversations.length} conversas no workspace</p>
+                    </div>
+                    <div className="px-3 py-1 rounded-full bg-emerald-50 text-primary text-[10px] font-extrabold uppercase tracking-widest border border-emerald-100">
+                      Ao vivo
+                    </div>
+                  </div>
+                  <div className="flex bg-slate-100 p-1 rounded-md gap-1">
+                    <button
                       onClick={() => setMsgFilter('all')}
                       className={cn(
-                        "flex-1 py-1.5 text-[10px] font-black rounded-lg transition-all", 
-                        msgFilter === 'all' ? "bg-white text-emerald-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                        "flex-1 py-1.5 text-[10px] font-extrabold rounded-md transition-all",
+                        msgFilter === 'all' ? "bg-sidebar-bg text-white shadow-sm" : "text-slate-500 hover:text-slate-900"
                       )}
                     >TODOS</button>
-                    <button 
+                    <button
                       onClick={() => setMsgFilter('contact')}
                       className={cn(
-                        "flex-1 py-1.5 text-[10px] font-black rounded-lg transition-all", 
-                        msgFilter === 'contact' ? "bg-white text-emerald-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                        "flex-1 py-1.5 text-[10px] font-extrabold rounded-md transition-all",
+                        msgFilter === 'contact' ? "bg-sidebar-bg text-white shadow-sm" : "text-slate-500 hover:text-slate-900"
                       )}
                     >CONTATOS</button>
-                    <button 
+                    <button
                       onClick={() => setMsgFilter('group')}
                       className={cn(
-                        "flex-1 py-1.5 text-[10px] font-black rounded-lg transition-all", 
-                        msgFilter === 'group' ? "bg-white text-emerald-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                        "flex-1 py-1.5 text-[10px] font-extrabold rounded-md transition-all",
+                        msgFilter === 'group' ? "bg-sidebar-bg text-white shadow-sm" : "text-slate-500 hover:text-slate-900"
                       )}
                     >GRUPOS</button>
                   </div>
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       placeholder="Buscar conversas..."
-                      className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-100 rounded-xl text-sm focus:outline-none"
+                      className="w-full pl-9 pr-4 py-3 bg-white border border-slate-200 rounded-md text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-primary focus:ring-3 focus:ring-primary/10"
                     />
                   </div>
                 </div>
-                <div className="flex-1 overflow-y-auto">
+                <div className="flex-1 overflow-y-auto p-3 space-y-2">
                   {conversations
+                    .filter(c => !isIgnoredConversation(c))
                     .filter(c => msgFilter === 'all' ? true : c.type === msgFilter)
-                    .map((conv) => (
+                    .map((conv) => {
+                      const preview = conv.last_message || conv.last_message_preview || '';
+                      const previewKind = mediaPreviewKind(preview);
+                      return (
                     <div key={conv.id} className="group relative">
                       <button
                         onClick={() => setActiveConversationId(conv.id)}
                         className={cn(
-                          "w-full p-4 flex gap-3 text-left transition-all hover:bg-white border-b border-slate-50",
-                          activeConversationId === conv.id ? "bg-white border-l-4 border-l-emerald-500" : "bg-transparent"
+                          "w-full p-3.5 flex gap-3 text-left transition-all rounded-md border",
+                          activeConversationId === conv.id ? "bg-slate-950 text-white border-slate-950 shadow-sm" : "bg-white border-transparent hover:border-slate-200 hover:bg-slate-50 text-slate-900"
                         )}
                       >
                         <div className="relative shrink-0">
                           <div className={cn(
-                            "w-12 h-12 rounded-xl flex items-center justify-center font-bold",
-                            conv.type === 'group' ? "bg-amber-100 text-amber-600" : "bg-emerald-100 text-emerald-600"
+                            "w-11 h-11 rounded-md flex items-center justify-center font-bold overflow-hidden",
+                            activeConversationId === conv.id ? "bg-white/12 text-white" : "bg-slate-100 text-slate-900"
                           )}>
-                            {(conv.title || '').charAt(0)}
+                            {conv.contact_profile_picture_url ? (
+                              <img src={sameOriginMediaUrl(conv.contact_profile_picture_url)} alt="" className="h-full w-full object-cover" />
+                            ) : (
+                              conversationInitial(conv)
+                            )}
                           </div>
-                          <div className="absolute -bottom-1 -right-1 bg-white p-1 rounded-full shadow-sm border border-slate-50">
+                          <div className={cn(
+                            "absolute -bottom-1 -right-1 p-1 rounded-full shadow-sm border",
+                            activeConversationId === conv.id ? "bg-slate-950 border-white/20 text-white" : "bg-white border-slate-200 text-slate-900"
+                          )}>
                             {conv.type === 'group' ? <Users size={12} /> : <User size={12} />}
                           </div>
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex justify-between items-start mb-0.5 pr-6">
-                            <h4 className="font-bold text-[14px] text-slate-900 truncate leading-tight">{conv.title}</h4>
-                            <span className="text-[10px] text-slate-400 font-medium whitespace-nowrap ml-2">
+                            <h4 className={cn("font-bold text-[13px] truncate leading-tight", activeConversationId === conv.id ? "text-white" : "text-slate-900")}>{conv.title}</h4>
+                            <span className={cn("text-[10px] font-medium whitespace-nowrap ml-2", activeConversationId === conv.id ? "text-white/55" : "text-slate-500")}>
                               {formatDate(conv.last_message_at)}
                             </span>
                           </div>
-                          <p className="text-xs text-slate-500 truncate leading-relaxed">
-                            {conv.last_message || 'Inicie uma conversa'}
-                          </p>
+                          {previewKind ? (
+                            <div className={cn("mt-1 flex items-center", activeConversationId === conv.id ? "text-white/65" : "text-slate-500")}>
+                              {previewKind === 'image' ? <ImageIcon size={14} /> : <Paperclip size={14} />}
+                            </div>
+                          ) : (
+                            <p className={cn("text-[11px] truncate leading-relaxed", activeConversationId === conv.id ? "text-white/65" : "text-slate-500")}>
+                              {preview || 'Inicie uma conversa'}
+                            </p>
+                          )}
+                          <div className="flex gap-1 mt-2">
+                            {JSON.parse(conv.tags_json || '[]').slice(0, 2).map((tag: string) => (
+                              <span key={tag} className={cn("px-2 py-0.5 rounded text-[10px] font-bold", activeConversationId === conv.id ? "bg-white/12 text-white" : "bg-slate-100 text-slate-700")}>{tag}</span>
+                            ))}
+                          </div>
                         </div>
                       </button>
-                      <button 
+                      <button
                          onClick={(e) => { e.stopPropagation(); deleteConversation(conv.id); }}
                          className="absolute right-4 top-1/2 -translate-y-1/2 p-2 text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-all"
                       >
                         <Trash2 size={16} />
                       </button>
                     </div>
-                  ))}
+                  )})}
                   {conversations.length === 0 && (
-                    <div className="p-8 text-center text-slate-400 text-xs">
-                      Nenhuma conversa encontrada.
+                    <div className="h-full min-h-[420px] flex flex-col gap-3">
+                      <div className="rounded-md border border-slate-200 bg-slate-50 p-4">
+                        <div className="flex items-center gap-3">
+                          <div className="h-10 w-10 rounded-md bg-white border border-slate-200 text-primary flex items-center justify-center">
+                            <MessagesSquare size={20} />
+                          </div>
+                          <div>
+                            <p className="text-sm font-black text-slate-950">Fila limpa</p>
+                            <p className="text-xs text-slate-500">Nenhuma conversa no filtro atual.</p>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="rounded-md border border-slate-200 bg-white p-4">
+                          <p className="text-[10px] font-extrabold uppercase text-slate-500">Contatos</p>
+                          <p className="mt-1 text-2xl font-black text-slate-950">{conversations.filter(item => item.type === 'contact').length}</p>
+                        </div>
+                        <div className="rounded-md border border-slate-200 bg-white p-4">
+                          <p className="text-[10px] font-extrabold uppercase text-slate-500">Grupos</p>
+                          <p className="mt-1 text-2xl font-black text-slate-950">{conversations.filter(item => item.type === 'group').length}</p>
+                        </div>
+                      </div>
+                      <div className="rounded-md border border-slate-200 bg-white p-4 space-y-3">
+                        <p className="text-[10px] font-extrabold uppercase tracking-widest text-slate-500">Entrada de mensagens</p>
+                        {[
+                          ['Webhook ativo', selectedWooInstance?.webhook?.webhooks_url || selectedWooInstance?.webhook_endpoint ? 'Configurado' : 'Aguardando'],
+                          ['Instancia padrao', selectedWooInstance?.name || 'Sem instancia'],
+                          ['Status', selectedWooInstance ? instanceStatusLabel(selectedWooInstance.status) : 'Sem canal']
+                        ].map(([label, value]) => (
+                          <div key={label} className="flex items-center justify-between gap-3 border-t border-slate-100 pt-3 first:border-t-0 first:pt-0">
+                            <span className="text-xs font-bold text-slate-500">{label}</span>
+                            <span className="max-w-[160px] truncate text-right text-xs font-black text-slate-950">{value}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-auto rounded-md border border-emerald-100 bg-emerald-50 p-4">
+                        <p className="text-xs font-black text-primary">Pronto para receber</p>
+                        <p className="mt-1 text-xs leading-relaxed text-slate-600">Assim que chegar uma mensagem, ela ocupa esta lista e abre o contexto completo ao lado.</p>
+                      </div>
                     </div>
                   )}
                 </div>
               </div>
 
               {/* Chat View */}
-              <div className="flex-1 flex flex-col bg-white">
+              <div className="flex flex-col bg-main-bg min-w-0">
                 {activeConversationId ? (
                   <>
                     {/* Chat Header */}
-                    <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+                    <div className="px-6 py-3.5 border-b border-slate-200 bg-white flex items-center justify-between">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center font-bold uppercase">
-                          {conversations.find(c => c.id === activeConversationId)?.title?.charAt(0) || '?'}
+                        <div className="w-10 h-10 bg-slate-100 text-slate-900 rounded-md flex items-center justify-center font-bold uppercase overflow-hidden">
+                          {conversations.find(c => c.id === activeConversationId)?.contact_profile_picture_url ? (
+                            <img src={sameOriginMediaUrl(conversations.find(c => c.id === activeConversationId)?.contact_profile_picture_url)} alt="" className="h-full w-full rounded-md object-cover" />
+                          ) : (
+                            conversationInitial(conversations.find(c => c.id === activeConversationId))
+                          )}
                         </div>
                         <div>
-                          <h3 className="font-bold text-slate-900">
+                          <h3 className="font-extrabold text-slate-900 text-sm">
                             {conversations.find(c => c.id === activeConversationId)?.title}
                           </h3>
-                          <p className="text-[10px] text-emerald-600 font-bold uppercase tracking-widest">Online</p>
+                          <p className="text-[11px] text-slate-500">
+                            {conversations.find(c => c.id === activeConversationId)?.remote_jid || conversations.find(c => c.id === activeConversationId)?.contact_phone}
+                          </p>
                         </div>
                       </div>
                       <div className="flex gap-2 text-slate-400">
-                        <button className="p-2 hover:bg-slate-50 rounded-lg transition-colors"><Smartphone size={20} /></button>
-                        <button className="p-2 hover:bg-slate-50 rounded-lg transition-colors"><Search size={20} /></button>
+                        <button className="p-2 hover:bg-slate-100 hover:text-slate-900 rounded-md transition-colors"><Smartphone size={20} /></button>
+                        <button className="p-2 hover:bg-slate-100 hover:text-slate-900 rounded-md transition-colors"><Search size={20} /></button>
                       </div>
                     </div>
 
                     {/* Chat Messages */}
-                    <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-50/20">
+                    <div className="flex-1 overflow-y-auto bg-main-bg">
+                      <div className="min-h-full flex flex-col justify-end px-8 py-6 space-y-4">
+                      <div className="mx-auto mb-2 px-4 py-1.5 rounded-full bg-white border border-slate-200 text-[11px] font-bold text-slate-500 shadow-sm">
+                        Conversa sincronizada em tempo real
+                      </div>
                       {chatMessages.map((msg) => (
-                        <div 
-                          key={msg.id || msg.message_id} 
+                        <div
+                          key={msg.id || msg.message_id}
                           className={cn(
-                            "flex flex-col max-w-[70%] group",
+                            "flex flex-col max-w-[68%] group",
                             msg.direction === 'outbound' ? "ml-auto items-end" : "items-start"
                           )}
                         >
@@ -1625,7 +3649,7 @@ export default function App() {
                             {msg.chat_type === 'group' && msg.direction === 'inbound' && (
                               <span className="text-[10px] text-slate-400 ml-1">{msg.author_push_name || msg.author_phone}</span>
                             )}
-                            <button 
+                            <button
                               onClick={() => deleteChatMessage(msg.id)}
                               className="text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-all"
                             >
@@ -1633,21 +3657,30 @@ export default function App() {
                             </button>
                           </div>
                           <div className={cn(
-                            "px-5 py-3 rounded-2xl text-[15px] shadow-sm leading-relaxed tracking-tight font-medium overflow-hidden",
-                            msg.direction === 'outbound' 
-                              ? msg.delivery_status === 'failed' 
+                            "rounded-md text-sm shadow-sm leading-relaxed tracking-tight font-medium overflow-hidden",
+                            ['image', 'video'].includes(String(msg.content_type)) ? "p-1" : "px-4 py-3",
+                            msg.direction === 'outbound'
+                              ? msg.delivery_status === 'failed'
                                 ? "bg-rose-500 text-white rounded-tr-none"
-                                : "bg-emerald-500 text-white rounded-tr-none"
-                              : "bg-white text-slate-900 border border-slate-100 rounded-tl-none"
+                                : "bg-sidebar-bg text-white rounded-tr-none"
+                              : "bg-white text-slate-900 border border-slate-200 rounded-tl-none"
                           )}>
-                             {msg.content_type === 'image' ? (
-                               <img src={msg.content_text} alt="Imagem" className="max-w-full rounded-lg cursor-pointer hover:opacity-90 transition-opacity" onClick={() => window.open(msg.content_text, '_blank')} />
+                             {msg.content_type === 'image' && isRenderableMediaUrl(msg.content_text) ? (
+                               <img src={sameOriginMediaUrl(msg.content_text)} alt="Imagem recebida" className="block w-[min(320px,62vw)] max-h-[360px] rounded-md object-contain bg-slate-100 cursor-pointer hover:opacity-90 transition-opacity" onClick={() => msg.content_text && window.open(sameOriginMediaUrl(msg.content_text), '_blank')} />
+                             ) : msg.content_type === 'image' ? (
+                               <div className="flex h-24 w-[min(320px,62vw)] items-center justify-center rounded-md bg-slate-100 text-slate-400">
+                                 <ImageIcon size={22} />
+                               </div>
                              ) : msg.content_type === 'audio' ? (
-                               <audio src={msg.content_text} controls className="max-w-[240px] h-10" />
+                               <audio src={sameOriginMediaUrl(msg.content_text)} controls className="max-w-[240px] h-10" />
+                             ) : msg.content_type === 'video' && isRenderableMediaUrl(msg.content_text) ? (
+                               <video src={sameOriginMediaUrl(msg.content_text)} controls className="block w-[min(320px,62vw)] max-h-[360px] rounded-md bg-black" />
                              ) : msg.content_type === 'video' ? (
-                               <video src={msg.content_text} controls className="max-w-full rounded-lg" />
+                               <div className="flex h-24 w-[min(320px,62vw)] items-center justify-center rounded-md bg-slate-100 text-slate-400">
+                                 <Paperclip size={22} />
+                               </div>
                              ) : msg.content_type === 'document' ? (
-                               <a href={msg.content_text} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 underline decoration-emerald-200">
+                               <a href={sameOriginMediaUrl(msg.content_text)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 underline decoration-slate-300">
                                  <Paperclip size={16} /> Ver Documento
                                </a>
                              ) : (
@@ -1663,9 +3696,9 @@ export default function App() {
                                 {msg.delivery_status === 'pending' && <span className="text-amber-400" title="Enviando...">⏳</span>}
                                 {msg.delivery_status === 'sent' && <span className="text-slate-400" title="Enviada">✓</span>}
                                 {msg.delivery_status === 'delivered' && <span className="text-slate-400" title="Entregue">✓✓</span>}
-                                {msg.delivery_status === 'read' && <span className="text-blue-500" title="Lida">✓✓</span>}
+                                {msg.delivery_status === 'read' && <span className="text-primary" title="Lida">✓✓</span>}
                                 {msg.delivery_status === 'failed' && (
-                                  <span className="text-rose-500 cursor-pointer" title="Falhou - clique para reenviar">❌</span>
+                                  <span className="text-rose-500 cursor-pointer" title="Falhou - clique para reenviar">✕</span>
                                 )}
                                 {!msg.delivery_status && <span className="text-slate-400">✓</span>}
                               </span>
@@ -1679,37 +3712,38 @@ export default function App() {
                            <p className="text-sm">Envie uma mensagem para começar.</p>
                         </div>
                       )}
+                      </div>
                     </div>
 
                     {/* Chat Input */}
-                    <div className="p-4 border-t border-slate-100">
-                      <div className="flex gap-4">
-                        <input 
-                          type="file" 
-                          ref={fileInputRef} 
-                          className="hidden" 
+                    <div className="p-4 border-t border-slate-200 bg-white">
+                      <div className="flex gap-3 items-center">
+                        <input
+                          type="file"
+                          ref={fileInputRef}
+                          className="hidden"
                           onChange={handleFileChange}
                         />
-                        <button 
+                        <button
                           onClick={() => fileInputRef.current?.click()}
-                          className="p-3 text-slate-400 hover:text-emerald-500 transition-colors"
+                          className="h-11 w-11 flex items-center justify-center bg-slate-100 text-slate-500 hover:text-slate-900 hover:bg-slate-200 rounded-md transition-colors"
                         >
                           <Paperclip size={20} />
                         </button>
                         <div className="flex-1 relative">
-                          <input 
-                            type="text" 
-                            className="w-full py-3 px-4 bg-slate-50 border border-slate-100 rounded-2xl focus:outline-none focus:border-emerald-500 transition-all text-sm"
+                          <input
+                            type="text"
+                            className="w-full h-11 px-4 bg-main-bg border border-slate-200 rounded-md focus:outline-none focus:border-primary focus:ring-3 focus:ring-primary/10 focus:bg-white transition-all text-sm"
                             placeholder="Digite sua mensagem..."
                             value={newMessage}
                             onChange={(e) => setNewMessage(e.target.value)}
                             onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
                           />
                         </div>
-                        <button 
+                        <button
                           onClick={sendMessage}
                           disabled={!newMessage.trim()}
-                          className="p-3 bg-emerald-500 text-white rounded-2xl hover:bg-emerald-600 transition-all shadow-lg shadow-emerald-100 disabled:opacity-50"
+                          className="h-11 w-11 flex items-center justify-center bg-sidebar-bg text-white rounded-md hover:bg-slate-800 transition-all disabled:opacity-50"
                         >
                           <Send size={20} />
                         </button>
@@ -1717,16 +3751,291 @@ export default function App() {
                     </div>
                   </>
                 ) : (
-                  <div className="flex flex-col items-center justify-center h-full text-center">
-                    <div className="w-20 h-20 bg-slate-50 text-slate-200 rounded-full flex items-center justify-center mb-6">
-                      <MessagesSquare size={40} />
+                  <div className="h-full p-5 flex flex-col gap-4 overflow-y-auto">
+                    <div className="w-full text-left rounded-md border border-slate-200 bg-white p-5">
+                    <div className="w-12 h-12 bg-emerald-50 text-primary rounded-md flex items-center justify-center mb-4 border border-emerald-100 shadow-sm">
+                      <MessagesSquare size={32} />
                     </div>
-                    <h3 className="text-xl font-bold text-slate-800">Selecione uma conversa</h3>
-                    <p className="text-slate-500 max-w-xs mt-2 mx-auto">
+                    <h3 className="text-2xl font-black text-slate-950">Selecione uma conversa</h3>
+                    <p className="text-slate-500 max-w-md mt-2 mx-auto">
                       Suas mensagens recebidas e enviadas aparecerão aqui em tempo real.
                     </p>
+                    <div className="grid grid-cols-4 gap-3 mt-5 text-left">
+                      <div className="rounded-md bg-white border border-slate-200 p-4">
+                        <p className="text-[10px] font-extrabold text-slate-500 uppercase">Conversas</p>
+                        <p className="text-2xl font-black text-slate-950 mt-1">{conversations.length}</p>
+                      </div>
+                      <div className="rounded-md bg-white border border-slate-200 p-4">
+                        <p className="text-[10px] font-extrabold text-slate-500 uppercase">Nao lidas</p>
+                        <p className="text-2xl font-black text-slate-950 mt-1">{conversations.reduce((sum, item) => sum + (item.unread_count || 0), 0)}</p>
+                      </div>
+                      <div className="rounded-md bg-white border border-slate-200 p-4">
+                        <p className="text-[10px] font-extrabold text-slate-500 uppercase">Modo</p>
+                        <p className="text-2xl font-black text-primary mt-1">Live</p>
+                      </div>
+                      <div className="rounded-md bg-white border border-slate-200 p-4">
+                        <p className="text-[10px] font-extrabold text-slate-500 uppercase">Canais</p>
+                        <p className="text-2xl font-black text-slate-950 mt-1">{instances.filter(item => isConnectedStatus(item.status)).length}/{instances.length}</p>
+                      </div>
+                    </div>
+                    </div>
+                    <div className="grid flex-1 min-h-[360px] grid-cols-2 gap-4">
+                      <div className="rounded-md border border-slate-200 bg-white p-5 flex flex-col">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-[10px] font-extrabold uppercase tracking-widest text-slate-500">Fila agora</p>
+                            <h4 className="mt-1 text-lg font-black text-slate-950">Sem conversas abertas</h4>
+                          </div>
+                          <Activity size={22} className="text-primary" />
+                        </div>
+                        <div className="mt-5 space-y-3">
+                          {[
+                            ['1', 'Conecte uma instancia WhatsApp para entrada em tempo real.'],
+                            ['2', 'Configure webhooks para n8n, Chatwoot ou seu CRM.'],
+                            ['3', 'Use tags e responsavel quando uma conversa chegar.']
+                          ].map(([step, text]) => (
+                            <div key={step} className="flex gap-3 rounded-md bg-main-bg border border-slate-200 p-3">
+                              <span className="h-7 w-7 shrink-0 rounded-md bg-sidebar-bg text-white flex items-center justify-center text-xs font-black">{step}</span>
+                              <p className="text-sm leading-relaxed text-slate-600">{text}</p>
+                            </div>
+                          ))}
+                        </div>
+                        <button
+                          onClick={() => setActiveTab('whatsapp')}
+                          className="mt-auto w-full rounded-md bg-sidebar-bg px-4 py-3 text-sm font-bold text-white hover:bg-slate-800 transition-colors"
+                        >
+                          Ver instancias
+                        </button>
+                      </div>
+
+                      <div className="rounded-md border border-slate-200 bg-white p-5 flex flex-col">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-[10px] font-extrabold uppercase tracking-widest text-slate-500">Canal principal</p>
+                            <h4 className="mt-1 text-lg font-black text-slate-950 truncate">{selectedWooInstance?.name || 'Nenhuma instancia'}</h4>
+                          </div>
+                          <Smartphone size={22} className={selectedWooInstance && isConnectedStatus(selectedWooInstance.status) ? 'text-primary' : 'text-slate-400'} />
+                        </div>
+                        <div className="mt-5 grid grid-cols-2 gap-3">
+                          <div className="rounded-md border border-slate-200 bg-main-bg p-4">
+                            <p className="text-[10px] font-extrabold uppercase text-slate-500">Status</p>
+                            <p className="mt-1 truncate text-sm font-black text-slate-950">{selectedWooInstance ? instanceStatusLabel(selectedWooInstance.status) : 'Sem canal'}</p>
+                          </div>
+                          <div className="rounded-md border border-slate-200 bg-main-bg p-4">
+                            <p className="text-[10px] font-extrabold uppercase text-slate-500">Tipo</p>
+                            <p className="mt-1 truncate text-sm font-black text-slate-950">{selectedWooInstance?.engine || 'WooAPI'}</p>
+                          </div>
+                        </div>
+                        <div className="mt-4 rounded-md border border-slate-200 bg-main-bg p-4">
+                          <p className="text-[10px] font-extrabold uppercase tracking-widest text-slate-500">Webhook</p>
+                          <p className="mt-2 break-all text-xs leading-relaxed text-slate-600">
+                            {selectedWooInstance?.webhook?.webhooks_url || selectedWooInstance?.webhook_endpoint || 'Nenhum webhook configurado para a instancia selecionada.'}
+                          </p>
+                        </div>
+                        <div className="mt-auto grid grid-cols-2 gap-3 pt-5">
+                          <button
+                            onClick={() => setActiveTab('integrations')}
+                            className="rounded-md bg-slate-100 px-4 py-3 text-sm font-bold text-slate-900 hover:bg-slate-200 transition-colors"
+                          >
+                            Conectores
+                          </button>
+                          <button
+                            onClick={() => setActiveTab('api_docs')}
+                            className="rounded-md bg-emerald-50 px-4 py-3 text-sm font-bold text-primary hover:bg-emerald-100 transition-colors"
+                          >
+                            Integracoes
+                          </button>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 )}
+              </div>
+
+              {(() => {
+                const conv = conversations.find(c => c.id === activeConversationId);
+                if (!conv) {
+                  const filteredConversations = conversations.filter(c => msgFilter === 'all' ? true : c.type === msgFilter);
+                  const latestConversation = filteredConversations[0];
+                  return (
+                    <aside className="hidden xl:flex border-l border-slate-200 bg-white flex-col min-w-0">
+                      <div className="p-5 border-b border-slate-200">
+                        <p className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest mb-3">Resumo</p>
+                        <h4 className="font-black text-slate-950 text-lg">Fila de atendimento</h4>
+                        <p className="text-xs text-slate-500 mt-1">Use a lista para abrir uma conversa e acompanhar dados, tags e acoes.</p>
+                      </div>
+                      <div className="p-5 space-y-4 overflow-y-auto flex-1">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="rounded-md bg-main-bg border border-slate-200 p-4">
+                            <p className="text-[10px] text-slate-500 font-extrabold uppercase">Visiveis</p>
+                            <p className="text-2xl font-black text-slate-900 mt-1">{filteredConversations.length}</p>
+                          </div>
+                          <div className="rounded-md bg-main-bg border border-slate-200 p-4">
+                            <p className="text-[10px] text-slate-500 font-extrabold uppercase">Nao lidas</p>
+                            <p className="text-2xl font-black text-slate-900 mt-1">{conversations.reduce((sum, item) => sum + (item.unread_count || 0), 0)}</p>
+                          </div>
+                        </div>
+                        <div className="rounded-md bg-main-bg border border-slate-200 p-4">
+                          <p className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest mb-3">Proxima acao</p>
+                          <p className="text-sm font-bold text-slate-950">{latestConversation?.title || 'Nenhuma conversa na fila'}</p>
+                          <p className="text-xs text-slate-500 mt-1 line-clamp-2">{latestConversation?.last_message || latestConversation?.last_message_preview || 'Quando uma mensagem chegar, ela aparecera aqui.'}</p>
+                          {latestConversation && (
+                            <button
+                              onClick={() => setActiveConversationId(latestConversation.id)}
+                              className="mt-4 w-full py-3 bg-sidebar-bg text-white rounded-md text-sm font-bold hover:bg-slate-800 transition-colors"
+                            >
+                              Abrir conversa
+                            </button>
+                          )}
+                        </div>
+                        <div className="rounded-md bg-main-bg border border-slate-200 p-4 space-y-3">
+                          <p className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest">Status do canal</p>
+                          <div className="flex items-center gap-2 text-sm font-bold text-slate-950">
+                            <span className="h-2.5 w-2.5 rounded-full bg-primary" />
+                            Sincronizacao em tempo real
+                          </div>
+                          <p className="text-xs text-slate-500">Mensagens novas entram na fila automaticamente.</p>
+                        </div>
+                        <div className="rounded-md bg-main-bg border border-slate-200 p-4 space-y-3">
+                          <p className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest">Checklist</p>
+                          {[
+                            ['Instancia', selectedWooInstance ? instanceStatusLabel(selectedWooInstance.status) : 'Sem canal'],
+                            ['Webhook', selectedWooInstance?.webhook?.webhooks_url || selectedWooInstance?.webhook_endpoint ? 'Configurado' : 'Pendente'],
+                            ['Operacao', conversations.length ? 'Com historico' : 'Fila limpa']
+                          ].map(([label, value]) => (
+                            <div key={label} className="flex items-center justify-between gap-3 border-t border-slate-200 pt-3 first:border-t-0 first:pt-0">
+                              <span className="text-xs font-bold text-slate-500">{label}</span>
+                              <span className="max-w-[150px] truncate text-right text-xs font-black text-slate-950">{value}</span>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="rounded-md bg-sidebar-bg p-4 text-white">
+                          <p className="text-[10px] font-extrabold uppercase tracking-widest text-white/45">Atalhos</p>
+                          <div className="mt-3 grid grid-cols-2 gap-2">
+                            <button
+                              onClick={() => setActiveTab('whatsapp')}
+                              className="rounded-md bg-white/10 px-3 py-2 text-xs font-bold hover:bg-white/15"
+                            >
+                              Instancias
+                            </button>
+                            <button
+                              onClick={() => setActiveTab('integrations')}
+                              className="rounded-md bg-white/10 px-3 py-2 text-xs font-bold hover:bg-white/15"
+                            >
+                              Conectores
+                            </button>
+                          </div>
+                        </div>
+                        <div className="mt-auto rounded-md border border-emerald-100 bg-emerald-50 p-4">
+                          <p className="text-xs font-black text-primary">Tela pronta para operacao</p>
+                          <p className="mt-1 text-xs leading-relaxed text-slate-600">O espaco livre agora vira monitoramento, configuracao e proxima acao.</p>
+                        </div>
+                      </div>
+                    </aside>
+                  );
+                }
+                const tags = JSON.parse(conv.tags_json || '[]');
+                return (
+                  <aside className="hidden xl:flex border-l border-slate-200 bg-main-bg flex-col min-w-0">
+                    <div className="p-5 border-b border-slate-200 bg-white">
+                      <p className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest mb-3">Atendimento</p>
+                      <div className="flex items-center gap-3">
+                        <div className="w-11 h-11 rounded-md bg-slate-100 text-slate-900 flex items-center justify-center font-black uppercase overflow-hidden">
+                          {conv.contact_profile_picture_url ? (
+                            <img src={sameOriginMediaUrl(conv.contact_profile_picture_url)} alt="" className="h-full w-full object-cover" />
+                          ) : (
+                            conversationInitial(conv)
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <h4 className="font-extrabold text-slate-900 text-sm truncate">{conv.title}</h4>
+                          <p className="text-[11px] text-slate-500 truncate">{conv.remote_jid || conv.contact_phone || conv.group_jid}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="p-5 space-y-4 overflow-y-auto">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="rounded-md bg-white border border-slate-200 p-4">
+                          <p className="text-[10px] text-slate-500 font-extrabold uppercase">Mensagens</p>
+                          <p className="text-2xl font-black text-slate-900 mt-1">{chatMessages.length}</p>
+                        </div>
+                        <div className="rounded-md bg-white border border-slate-200 p-4">
+                          <p className="text-[10px] text-slate-500 font-extrabold uppercase">Não lidas</p>
+                          <p className="text-2xl font-black text-slate-900 mt-1">{conv.unread_count || 0}</p>
+                        </div>
+                      </div>
+
+                      <div className="rounded-md bg-white border border-slate-200 p-4">
+                        <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest block mb-2">Status</label>
+                        <select
+                          value={conv.status || 'open'}
+                          onChange={(e) => updateConversationMeta(conv.id, { status: e.target.value })}
+                          className="w-full px-3 py-2 bg-main-bg border border-slate-200 rounded-md text-sm focus:outline-none focus:border-slate-900"
+                        >
+                          <option value="open">Aberto</option>
+                          <option value="pending">Pendente</option>
+                          <option value="closed">Resolvido</option>
+                        </select>
+                      </div>
+
+                      <div className="rounded-md bg-white border border-slate-200 p-4">
+                        <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest block mb-2">Responsável</label>
+                        <select
+                          value={conv.assigned_to || ''}
+                          onChange={(e) => updateConversationMeta(conv.id, { assigned_to: e.target.value || null })}
+                          className="w-full px-3 py-2 bg-main-bg border border-slate-200 rounded-md text-sm focus:outline-none focus:border-slate-900"
+                        >
+                          <option value="">Sem responsável</option>
+                          {team.map(member => <option key={member.id} value={member.name}>{member.name}</option>)}
+                        </select>
+                      </div>
+
+                      <div className="rounded-md bg-white border border-slate-200 p-4">
+                        <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest block mb-2">Tags</label>
+                        <div className="flex flex-wrap gap-2 mb-3">
+                          {tags.length ? tags.map((tag: string) => (
+                            <button
+                              key={tag}
+                              onClick={() => updateConversationMeta(conv.id, { tags: tags.filter((t: string) => t !== tag) })}
+                              className="px-2.5 py-1 bg-slate-100 text-slate-900 rounded-md text-xs font-bold"
+                            >
+                              {tag} ×
+                            </button>
+                          )) : <span className="text-xs text-slate-400">Nenhuma tag</span>}
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          {['suporte', 'vendas', 'urgente', 'financeiro'].map(tag => (
+                            <button
+                              key={tag}
+                              onClick={() => addConversationTag(conv, tag)}
+                              className="px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-md text-xs font-bold text-slate-900 transition-colors"
+                            >
+                              + {tag}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="rounded-md bg-white border border-slate-200 p-4 space-y-2">
+                        <p className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest mb-2">Ações rápidas</p>
+                        <button
+                          onClick={() => updateConversationMeta(conv.id, { status: 'pending' })}
+                          className="w-full py-3 bg-slate-100 text-slate-900 rounded-md text-sm font-bold hover:bg-slate-200 transition-colors"
+                        >
+                          Transferir / colocar em espera
+                        </button>
+                        <button
+                          onClick={() => updateConversationMeta(conv.id, { status: 'closed' })}
+                          className="w-full py-3 bg-sidebar-bg text-white rounded-md text-sm font-bold hover:bg-slate-800 transition-colors"
+                        >
+                          Encerrar atendimento
+                        </button>
+                      </div>
+                    </div>
+                  </aside>
+                );
+              })()}
               </div>
             </motion.div>
           )}
@@ -1759,7 +4068,7 @@ export default function App() {
                     </div>
                     <div>
                       <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Vincular Agente IA</label>
-                      <select 
+                      <select
                         className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none"
                         value={newSchedule.agent_id}
                         onChange={(e) => setNewSchedule({ ...newSchedule, agent_id: Number(e.target.value) })}
@@ -1770,7 +4079,7 @@ export default function App() {
                     </div>
                     <div>
                       <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Vincular Membro do Time</label>
-                      <select 
+                      <select
                         className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none"
                         value={newSchedule.member_id}
                         onChange={(e) => setNewSchedule({ ...newSchedule, member_id: Number(e.target.value) })}
@@ -1791,7 +4100,7 @@ export default function App() {
                     </div>
                     <button
                       onClick={createSchedule}
-                      className="w-full py-3 bg-emerald-500 text-white font-bold rounded-xl hover:bg-emerald-600 transition-all flex items-center justify-center gap-2"
+                      className="w-full py-3 bg-primary text-white font-bold rounded-xl hover:bg-primary/90 transition-all flex items-center justify-center gap-2"
                     >
                       <Plus size={20} />
                       Criar Agenda
@@ -1803,10 +4112,10 @@ export default function App() {
                   {schedules.map((schedule) => (
                     <Card key={schedule.id} className="p-6 flex flex-col">
                       <div className="flex items-start justify-between mb-4">
-                        <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center">
+                        <div className="w-12 h-12 bg-slate-50 text-primary rounded-2xl flex items-center justify-center">
                           <Calendar size={24} />
                         </div>
-                        <button 
+                        <button
                           onClick={() => schedule.id && deleteSchedule(schedule.id)}
                           className="text-slate-300 hover:text-red-500 transition-colors"
                         >
@@ -1823,7 +4132,7 @@ export default function App() {
                             <Bot size={14} />
                           </div>
                           <span className="text-xs font-medium text-slate-600">
-                            Agente: <span className="font-bold text-emerald-600">{schedule.agent_name || 'Não vinculado'}</span>
+                            Agente: <span className="font-bold text-primary">{schedule.agent_name || 'Não vinculado'}</span>
                           </span>
                         </div>
                         <div className="flex items-center gap-2">
@@ -1831,7 +4140,7 @@ export default function App() {
                             <Users size={14} />
                           </div>
                           <span className="text-xs font-medium text-slate-600">
-                            Equipe: <span className="font-bold text-blue-600">{schedule.member_name || 'Não vinculado'}</span>
+                            Equipe: <span className="font-bold text-primary">{schedule.member_name || 'Não vinculado'}</span>
                           </span>
                         </div>
                       </div>
@@ -1868,14 +4177,14 @@ export default function App() {
                       <input
                         type="text"
                         placeholder="Ex: Vendedor de Software"
-                        className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                        className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-900/10"
                         value={newAgent.name}
                         onChange={(e) => setNewAgent({ ...newAgent, name: e.target.value })}
                       />
                     </div>
                     <div>
                       <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Personalidade</label>
-                      <select 
+                      <select
                         className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none"
                         value={newAgent.personality}
                         onChange={(e) => setNewAgent({ ...newAgent, personality: e.target.value })}
@@ -1891,19 +4200,19 @@ export default function App() {
                       <textarea
                         rows={3}
                         placeholder="Instruções base para o comportamento..."
-                        className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 resize-none"
+                        className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-900/10 resize-none"
                         value={newAgent.system_instruction}
                         onChange={(e) => setNewAgent({ ...newAgent, system_instruction: e.target.value })}
                       />
                     </div>
-                    
+
                     <div>
                       <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">FAQ (Respostas Padrão)</label>
                       <div className="space-y-2">
                         {newAgent.faq.map((f, i) => (
                           <div key={i} className="flex gap-2">
-                            <input 
-                              placeholder="Pergunta" 
+                            <input
+                              placeholder="Pergunta"
                               className="flex-1 text-xs p-2 bg-slate-50 border border-slate-100 rounded-lg"
                               value={f.q}
                               onChange={(e) => {
@@ -1912,8 +4221,8 @@ export default function App() {
                                 setNewAgent({ ...newAgent, faq: n });
                               }}
                             />
-                            <input 
-                              placeholder="Resposta" 
+                            <input
+                              placeholder="Resposta"
                               className="flex-1 text-xs p-2 bg-slate-50 border border-slate-100 rounded-lg"
                               value={f.a}
                               onChange={(e) => {
@@ -1924,9 +4233,9 @@ export default function App() {
                             />
                           </div>
                         ))}
-                        <button 
+                        <button
                           onClick={() => setNewAgent({ ...newAgent, faq: [...newAgent.faq, { q: '', a: '' }] })}
-                          className="text-[10px] text-emerald-600 font-bold hover:underline"
+                          className="text-[10px] text-primary font-bold hover:underline"
                         >
                           + Adicionar FAQ
                         </button>
@@ -1946,7 +4255,7 @@ export default function App() {
 
                     <button
                       onClick={createAgent}
-                      className="w-full py-3 bg-emerald-500 text-white font-bold rounded-xl hover:bg-emerald-600 transition-all flex items-center justify-center gap-2"
+                      className="w-full py-3 bg-primary text-white font-bold rounded-xl hover:bg-primary/90 transition-all flex items-center justify-center gap-2"
                     >
                       <Plus size={20} />
                       Salvar Agente
@@ -1958,10 +4267,10 @@ export default function App() {
                   {agents.map((agent) => (
                     <Card key={agent.id} className="p-6 flex flex-col">
                       <div className="flex items-start justify-between mb-4">
-                        <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center">
+                        <div className="w-12 h-12 bg-slate-50 text-primary rounded-2xl flex items-center justify-center">
                           <Bot size={24} />
                         </div>
-                        <button 
+                        <button
                           onClick={() => agent.id && deleteAgent(agent.id)}
                           className="text-slate-300 hover:text-red-500 transition-colors"
                         >
@@ -1969,7 +4278,7 @@ export default function App() {
                         </button>
                       </div>
                       <h4 className="text-xl font-bold mb-1">{agent.name}</h4>
-                      <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest mb-3">{agent.personality}</p>
+                      <p className="text-[10px] font-bold text-primary uppercase tracking-widest mb-3">{agent.personality}</p>
                       <p className="text-sm text-slate-500 line-clamp-3 flex-1 italic mb-4">
                         "{agent.system_instruction}"
                       </p>
@@ -1979,7 +4288,7 @@ export default function App() {
                       </div>
                       <div className="mt-auto pt-6 border-t border-slate-50 flex items-center justify-between">
                         <span className="text-xs text-slate-400">ID: #{agent.id}</span>
-                        <button className="text-emerald-600 text-sm font-bold hover:underline">Configurar</button>
+                        <button className="text-primary text-sm font-bold hover:underline">Configurar</button>
                       </div>
                     </Card>
                   ))}
@@ -2002,27 +4311,27 @@ export default function App() {
 
               <div className="flex gap-6 overflow-x-auto pb-6 min-h-[600px]">
                 {['new', 'contacted', 'negotiating', 'closed', 'lost'].map((status) => (
-                  <div key={status} className="flex-1 min-w-[280px] space-y-4">
+                  <div key={status} className="flex-1 min-w-[300px] space-y-4 bg-[#f4f5f7] p-4 rounded-2xl h-fit min-h-[500px]">
                     <div className="flex items-center justify-between px-2">
-                      <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">
-                        {status === 'new' ? 'Novo' : 
-                         status === 'contacted' ? 'Contatado' : 
-                         status === 'negotiating' ? 'Negociando' : 
+                      <h3 className="text-[11px] font-black uppercase tracking-widest text-slate-900/60">
+                        {status === 'new' ? 'Novo' :
+                         status === 'contacted' ? 'Contatado' :
+                         status === 'negotiating' ? 'Negociando' :
                          status === 'closed' ? 'Fechado' : 'Perdido'}
                       </h3>
-                      <span className="bg-slate-200 text-slate-600 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                      <span className="bg-white text-slate-900 text-[10px] font-black px-2 py-0.5 rounded-full shadow-sm">
                         {leads.filter(l => l.kanban_status === status).length}
                       </span>
                     </div>
-                    
+
                     <div className="space-y-3">
                       {leads.filter(l => l.kanban_status === status).map((lead) => (
-                        <Card key={lead.id} className="p-4 cursor-pointer hover:border-emerald-500 transition-all group">
+                        <Card key={lead.id} className="p-5 cursor-pointer hover:shadow-lg transition-all group border-none shadow-sm bg-white">
                           <h4 className="font-bold text-sm">{lead.name}</h4>
                           <p className="text-[10px] text-slate-400 mt-1">{lead.address}</p>
                           <div className="mt-4 flex items-center justify-between">
                             <span className="text-[10px] font-mono text-slate-500">{lead.phone}</span>
-                            <select 
+                            <select
                               className="text-[10px] bg-slate-50 border border-slate-100 rounded p-1 opacity-0 group-hover:opacity-100 transition-opacity"
                               value={lead.kanban_status}
                               onChange={(e) => lead.id && updateKanban(lead.id, e.target.value)}
@@ -2056,20 +4365,20 @@ export default function App() {
                   <p className="text-slate-500">Gerencie seu time e credenciais de IA.</p>
                 </div>
                 <div className="flex bg-white p-1 rounded-xl border border-slate-200">
-                  <button 
+                  <button
                     onClick={() => setSettingsSubTab('credentials')}
                     className={cn(
                       "px-4 py-2 text-xs font-bold rounded-lg transition-all",
-                      settingsSubTab === 'credentials' ? "bg-emerald-50 text-emerald-700" : "text-slate-500 hover:bg-slate-50"
+                      settingsSubTab === 'credentials' ? "bg-slate-50 text-slate-700" : "text-slate-500 hover:bg-slate-50"
                     )}
                   >
                     LLM & APIs
                   </button>
-                  <button 
+                  <button
                     onClick={() => setSettingsSubTab('team')}
                     className={cn(
                       "px-4 py-2 text-xs font-bold rounded-lg transition-all",
-                      settingsSubTab === 'team' ? "bg-emerald-50 text-emerald-700" : "text-slate-500 hover:bg-slate-50"
+                      settingsSubTab === 'team' ? "bg-slate-50 text-slate-700" : "text-slate-500 hover:bg-slate-50"
                     )}
                   >
                     Membros do Time
@@ -2084,7 +4393,7 @@ export default function App() {
                     <div className="space-y-4">
                       <div>
                         <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Provedor</label>
-                        <select 
+                        <select
                           className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none"
                           value={newCred.provider}
                           onChange={(e) => setNewCred({ ...newCred, provider: e.target.value })}
@@ -2126,7 +4435,7 @@ export default function App() {
                       </div>
                       <button
                         onClick={createCredential}
-                        className="w-full py-3 bg-emerald-500 text-white font-bold rounded-xl hover:bg-emerald-600 transition-all flex items-center justify-center gap-2"
+                        className="w-full py-3 bg-primary text-white font-bold rounded-xl hover:bg-primary/90 transition-all flex items-center justify-center gap-2"
                       >
                         <Plus size={20} />
                         Salvar Credencial
@@ -2143,7 +4452,7 @@ export default function App() {
                             <div className="flex items-center gap-4">
                               <div className={cn(
                                 "w-10 h-10 rounded-xl flex items-center justify-center font-bold",
-                                cred.is_active ? "bg-emerald-50 text-emerald-600" : "bg-slate-50 text-slate-400"
+                                cred.is_active ? "bg-slate-50 text-primary" : "bg-slate-50 text-slate-400"
                               )}>
                                 {cred.provider.charAt(0).toUpperCase()}
                               </div>
@@ -2154,17 +4463,17 @@ export default function App() {
                             </div>
                             <div className="flex items-center gap-3">
                               {!cred.is_active && (
-                                <button 
+                                <button
                                   onClick={() => cred.id && activateCredential(cred.id, cred.provider)}
-                                  className="text-xs font-bold text-emerald-600 hover:underline"
+                                  className="text-xs font-bold text-primary hover:underline"
                                 >
                                   Ativar
                                 </button>
                               )}
                               {cred.is_active && (
-                                <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-bold">ATIVO</span>
+                                <span className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full font-bold">ATIVO</span>
                               )}
-                              <button 
+                              <button
                                 onClick={() => cred.id && deleteCredential(cred.id)}
                                 className="text-slate-300 hover:text-red-500 transition-colors"
                               >
@@ -2217,7 +4526,7 @@ export default function App() {
                       </div>
                       <button
                         onClick={createMember}
-                        className="w-full py-3 bg-emerald-500 text-white font-bold rounded-xl hover:bg-emerald-600 transition-all flex items-center justify-center gap-2"
+                        className="w-full py-3 bg-primary text-white font-bold rounded-xl hover:bg-primary/90 transition-all flex items-center justify-center gap-2"
                       >
                         <Plus size={20} />
                         Adicionar ao Time
@@ -2238,7 +4547,7 @@ export default function App() {
                             <p className="text-[10px] text-slate-400 mt-1">{member.email}</p>
                           </div>
                         </div>
-                        <button 
+                        <button
                           onClick={() => member.id && deleteMember(member.id)}
                           className="text-slate-300 hover:text-red-500 transition-colors"
                         >
@@ -2273,14 +4582,14 @@ export default function App() {
                       <input
                         type="text"
                         placeholder="Ex: Lançamento Verão"
-                        className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                        className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-900/10"
                         value={newCampaign.name}
                         onChange={(e) => setNewCampaign({ ...newCampaign, name: e.target.value })}
                       />
                     </div>
                     <div>
                       <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Agente IA Responsável</label>
-                      <select 
+                      <select
                         className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none"
                         value={newCampaign.agent_id}
                         onChange={(e) => setNewCampaign({ ...newCampaign, agent_id: Number(e.target.value) })}
@@ -2291,7 +4600,7 @@ export default function App() {
                     </div>
                     <div>
                       <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Método Inicial</label>
-                      <select 
+                      <select
                         className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none"
                         value={newCampaign.initial_method}
                         onChange={(e) => setNewCampaign({ ...newCampaign, initial_method: e.target.value as 'ai' | 'direct' })}
@@ -2306,12 +4615,12 @@ export default function App() {
                       <div className="space-y-3">
                         <div>
                           <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Após primeira resposta</label>
-                          <select 
+                          <select
                             className="w-full px-3 py-1.5 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:outline-none"
                             value={newCampaign.transition_rules.after_first_response}
-                            onChange={(e) => setNewCampaign({ 
-                              ...newCampaign, 
-                              transition_rules: { ...newCampaign.transition_rules, after_first_response: e.target.value } 
+                            onChange={(e) => setNewCampaign({
+                              ...newCampaign,
+                              transition_rules: { ...newCampaign.transition_rules, after_first_response: e.target.value }
                             })}
                           >
                             <option value="continue_ai">Continuar com IA</option>
@@ -2326,9 +4635,9 @@ export default function App() {
                             placeholder="Ex: falar com humano, ajuda, suporte"
                             className="w-full px-3 py-1.5 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:outline-none"
                             value={newCampaign.transition_rules.on_keyword}
-                            onChange={(e) => setNewCampaign({ 
-                              ...newCampaign, 
-                              transition_rules: { ...newCampaign.transition_rules, on_keyword: e.target.value } 
+                            onChange={(e) => setNewCampaign({
+                              ...newCampaign,
+                              transition_rules: { ...newCampaign.transition_rules, on_keyword: e.target.value }
                             })}
                           />
                         </div>
@@ -2337,7 +4646,7 @@ export default function App() {
 
                     <button
                       onClick={createCampaign}
-                      className="w-full py-3 bg-emerald-500 text-white font-bold rounded-xl hover:bg-emerald-600 transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-100"
+                      className="w-full py-3 bg-primary text-white font-bold rounded-xl hover:bg-primary/90 transition-all flex items-center justify-center gap-2 shadow-lg shadow-slate-200"
                     >
                       <Plus size={20} />
                       Criar Campanha
@@ -2349,10 +4658,10 @@ export default function App() {
                   {campaigns.map((campaign) => (
                     <Card key={campaign.id} className="p-6 flex flex-col">
                       <div className="flex items-start justify-between mb-4">
-                        <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center">
+                        <div className="w-12 h-12 bg-slate-50 text-primary rounded-2xl flex items-center justify-center">
                           <MessageSquare size={24} />
                         </div>
-                        <button 
+                        <button
                           onClick={() => campaign.id && deleteCampaign(campaign.id)}
                           className="text-slate-300 hover:text-red-500 transition-colors"
                         >
@@ -2363,12 +4672,12 @@ export default function App() {
                       <div className="flex items-center gap-2 mb-4">
                         <span className={cn(
                           "text-[10px] font-bold px-2 py-0.5 rounded-full uppercase",
-                          campaign.initial_method === 'ai' ? "bg-emerald-100 text-emerald-700" : "bg-blue-100 text-blue-700"
+                          campaign.initial_method === 'ai' ? "bg-slate-100 text-slate-700" : "bg-slate-100 text-slate-700"
                         )}>
                           {campaign.initial_method === 'ai' ? 'IA Ativa' : 'Disparo Direto'}
                         </span>
                       </div>
-                      
+
                       <div className="space-y-3 mt-auto pt-4 border-t border-slate-50">
                         <div className="flex items-center justify-between text-xs">
                           <span className="text-slate-400">Agente:</span>
@@ -2396,7 +4705,475 @@ export default function App() {
           )}
 
           {activeTab === 'super_admin' && auth.user.role === 'super_admin' && (
-            <SuperAdmin apiFetch={apiFetch} />
+            <SuperAdminPanel apiFetch={apiFetch} onImpersonate={handleImpersonate} onLogout={handleLogout} onBackToAccount={() => setActiveTab('dashboard')} authUser={auth.user} />
+          )}
+
+          {activeTab === 'support' && (
+            <motion.div
+              key="support"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-6"
+            >
+              <header className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <h2 className="text-3xl font-bold">Suporte WooAPI</h2>
+                  <p className="text-slate-500">Agente de diagnostico primeiro, ticket humano quando precisar.</p>
+                </div>
+                <button onClick={fetchSupportTickets} className="flex items-center gap-2 rounded-md bg-slate-900 px-4 py-3 text-sm font-bold text-white hover:bg-primary">
+                  <RefreshCw size={16} />
+                  Atualizar tickets
+                </button>
+              </header>
+
+              <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_380px]">
+                <Card className="flex min-h-[620px] flex-col overflow-hidden">
+                  <div className="border-b border-slate-100 p-5">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <h3 className="text-lg font-black text-slate-950">Web chat de suporte</h3>
+                        <p className="text-sm text-slate-500">O agente consulta status e logs antes de escalar.</p>
+                      </div>
+                      <select
+                        value={supportInstanceId}
+                        onChange={(e) => setSupportInstanceId(e.target.value ? Number(e.target.value) : '')}
+                        className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold"
+                      >
+                        <option value="">Todas as instancias</option>
+                        {instances.map(inst => (
+                          <option key={inst.id} value={inst.id}>{inst.name} - {instanceStatusLabel(inst.status)}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="flex-1 space-y-4 overflow-y-auto bg-slate-50 p-5">
+                    {supportChatMessages.map((msg, index) => {
+                      const isUser = msg.sender === 'customer';
+                      const isHuman = msg.sender === 'human';
+                      return (
+                        <div key={`${msg.created_at}-${index}`} className={cn("flex", isUser ? "justify-end" : "justify-start")}>
+                          <div className={cn(
+                            "max-w-[82%] rounded-2xl px-4 py-3 shadow-sm",
+                            isUser ? "bg-primary text-white" : isHuman ? "bg-slate-900 text-white" : "bg-white text-slate-700"
+                          )}>
+                            <div className="mb-1 flex items-center gap-2">
+                              {!isUser && (isHuman ? <User size={14} /> : <Bot size={14} />)}
+                              <span className="text-[10px] font-black uppercase opacity-70">{isUser ? 'voce' : isHuman ? 'humano' : 'agente'}</span>
+                            </div>
+                            <p className="whitespace-pre-wrap text-sm leading-relaxed">{msg.message}</p>
+                            {msg.ticket && <p className="mt-2 text-xs font-black opacity-80">Ticket #{msg.ticket.id} aberto</p>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="border-t border-slate-100 bg-white p-4">
+                    <div className="flex gap-3">
+                      <input
+                        value={supportInput}
+                        onChange={(e) => setSupportInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            sendSupportChat();
+                          }
+                        }}
+                        placeholder="Descreva o problema: conexao, envio, webhook, QR, delay..."
+                        className="flex-1 rounded-xl border border-slate-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                      />
+                      <button
+                        onClick={sendSupportChat}
+                        disabled={!supportInput.trim() || supportSending}
+                        className="flex items-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-black text-white disabled:opacity-50"
+                      >
+                        {supportSending ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
+                        Enviar
+                      </button>
+                    </div>
+                  </div>
+                </Card>
+
+                <Card className="h-fit overflow-hidden">
+                  <div className="border-b border-slate-100 p-5">
+                    <h3 className="text-lg font-black text-slate-950">Meus tickets</h3>
+                    <p className="text-sm text-slate-500">Chamados escalados para atendimento humano.</p>
+                  </div>
+                  <div className="divide-y divide-slate-100">
+                    {supportTickets.slice(0, 12).map(ticket => (
+                      <div key={ticket.id} className="p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate font-black text-slate-900">#{ticket.id} {ticket.subject}</p>
+                            <p className="text-xs text-slate-500">{ticket.source || 'suporte'} - {ticket.created_at ? new Date(ticket.created_at).toLocaleString('pt-BR') : ''}</p>
+                          </div>
+                          <span className={cn("shrink-0 rounded px-2 py-1 text-[10px] font-black uppercase", ticket.status === 'resolved' ? "bg-emerald-50 text-emerald-700" : ticket.priority === 'high' ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-700")}>{ticket.status}</span>
+                        </div>
+                        {ticket.ai_summary && <p className="mt-2 text-xs text-slate-500">{ticket.ai_summary}</p>}
+                      </div>
+                    ))}
+                    {supportTickets.length === 0 && <p className="py-12 text-center text-sm text-slate-400">Nenhum ticket aberto ainda.</p>}
+                  </div>
+                </Card>
+              </div>
+            </motion.div>
+          )}
+
+          {activeTab === 'wooapi_monitor' && (
+            <motion.div
+              key="wooapi_monitor"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-6"
+            >
+              <header className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <h2 className="text-3xl font-bold">Central WooAPI</h2>
+                  <p className="text-slate-500">Webhooks, eventos, logs de entrega e integrações da sua instância.</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <select
+                    className="min-w-[260px] rounded-md border border-slate-200 bg-white px-4 py-3 text-sm font-bold"
+                    value={selectedWooInstance?.id || ''}
+                    onChange={(e) => setSelectedWooInstanceId(Number(e.target.value))}
+                  >
+                    {instances.map(inst => (
+                      <option key={inst.id} value={inst.id}>{inst.name} - {instanceStatusLabel(inst.status)}</option>
+                    ))}
+                  </select>
+                  <button onClick={() => fetchWooApiPanel()} className="flex items-center gap-2 rounded-md bg-slate-900 px-4 py-3 text-sm font-bold text-white hover:bg-primary">
+                    <RefreshCw size={16} />
+                    Atualizar
+                  </button>
+                </div>
+              </header>
+
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
+                {[
+                  { label: 'Status', value: selectedWooInstance ? instanceStatusLabel(selectedWooInstance.status) : 'Sem instancia', icon: Smartphone },
+                  { label: 'Webhooks ativos', value: instanceWebhooks.filter(h => h.is_active).length, icon: Webhook },
+                  { label: 'Entregas OK', value: selectedWebhookSuccess, icon: CheckCircle2 },
+                  { label: 'Falhas entrega', value: selectedWebhookFailures, icon: AlertCircle },
+                  { label: 'Eventos salvos', value: webhookEvents.length, icon: FileText }
+                ].map(({ label, value, icon: Icon }) => (
+                  <Card key={label} className="p-5">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-black uppercase text-slate-400">{label}</p>
+                      <Icon size={19} className="text-primary" />
+                    </div>
+                    <p className="mt-3 truncate text-2xl font-black text-slate-950">{typeof value === 'number' ? value : value}</p>
+                  </Card>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.1fr_1fr]">
+                <Card className="overflow-hidden">
+                  <div className="flex items-center justify-between border-b border-slate-100 p-5">
+                    <div>
+                      <h3 className="text-lg font-bold">Traffic Controller</h3>
+                      <p className="text-sm text-slate-500">Limites globais, filas e protecao contra pico.</p>
+                    </div>
+                    <button onClick={assignSelectedInstance} disabled={!selectedWooInstanceId} className="flex items-center gap-2 rounded-md bg-slate-900 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">
+                      <Server size={15} />
+                      Assign
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 p-5 md:grid-cols-5">
+                    {Object.entries(platformMonitor?.traffic_policy || {}).map(([key, value]) => (
+                      <div key={key} className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                        <p className="text-[10px] font-black uppercase text-slate-400">{key.replace(/_/g, ' ')}</p>
+                        <p className="mt-1 text-xl font-black text-slate-950">{displayNumber(value)}</p>
+                      </div>
+                    ))}
+                    {!platformMonitor?.traffic_policy && <p className="col-span-full text-sm text-slate-400">Carregando politica...</p>}
+                  </div>
+                  <div className="border-t border-slate-100 p-5">
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                      <button onClick={() => transitionSelectedInstance('health_degraded')} disabled={!selectedWooInstanceId} className="rounded-md bg-amber-50 px-3 py-2 text-xs font-black text-amber-700 disabled:opacity-50">Marcar degradada</button>
+                      <button onClick={() => transitionSelectedInstance('risk_elevated')} disabled={!selectedWooInstanceId} className="rounded-md bg-orange-50 px-3 py-2 text-xs font-black text-orange-700 disabled:opacity-50">Cooldown</button>
+                      <button onClick={() => transitionSelectedInstance('manual_block')} disabled={!selectedWooInstanceId} className="rounded-md bg-red-50 px-3 py-2 text-xs font-black text-red-700 disabled:opacity-50">Bloquear</button>
+                    </div>
+                  </div>
+                </Card>
+
+                <Card className="overflow-hidden">
+                  <div className="border-b border-slate-100 p-5">
+                    <h3 className="text-lg font-bold">Filas</h3>
+                    <p className="text-sm text-slate-500">Backlog por worker e DLQ.</p>
+                  </div>
+                  <div className="max-h-[290px] divide-y divide-slate-100 overflow-y-auto">
+                    {(platformMonitor?.queues || []).map((queue: any) => (
+                      <div key={queue.key} className="grid grid-cols-[1fr_auto] gap-3 p-4">
+                        <div className="min-w-0">
+                          <p className="truncate font-black text-slate-900">{queue.label}</p>
+                          <p className="truncate font-mono text-[11px] text-slate-400">{queue.name}</p>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2 text-right text-[11px] font-bold">
+                          <span className="text-slate-500">W {displayNumber(queue.waiting)}</span>
+                          <span className="text-blue-600">A {displayNumber(queue.active)}</span>
+                          <span className={displayNumber(queue.failed) ? "text-red-600" : "text-slate-500"}>F {displayNumber(queue.failed)}</span>
+                        </div>
+                      </div>
+                    ))}
+                    {(!platformMonitor?.queues || platformMonitor.queues.length === 0) && <p className="py-12 text-center text-sm text-slate-400">Sem dados de fila ainda.</p>}
+                  </div>
+                </Card>
+              </div>
+
+              <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+                <Card className="overflow-hidden">
+                  <div className="border-b border-slate-100 p-5">
+                    <h3 className="text-lg font-bold">Core Nodes</h3>
+                    <p className="text-sm text-slate-500">Capacidade, perfil, IP pool e drain mode.</p>
+                  </div>
+                  <div className="divide-y divide-slate-100">
+                    {(platformMonitor?.core_nodes || []).slice(0, 8).map((node: any) => (
+                      <div key={node.id} className="p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate font-black text-slate-900">{node.id}</p>
+                            <p className="text-xs text-slate-500">{node.region} - {node.profile} - {node.ip_pool_id}</p>
+                          </div>
+                          <button onClick={() => toggleNodeDrain(node)} className={cn("rounded px-3 py-2 text-xs font-black", Number(node.drain_mode || 0) ? "bg-amber-50 text-amber-700" : "bg-slate-900 text-white")}>
+                            {Number(node.drain_mode || 0) ? 'Sair drain' : 'Drain'}
+                          </button>
+                        </div>
+                        <div className="mt-3 grid grid-cols-4 gap-2 text-xs">
+                          <span className="rounded bg-slate-50 px-2 py-1 font-bold text-slate-600">CPU {displayNumber(node.cpu_percent)}%</span>
+                          <span className="rounded bg-slate-50 px-2 py-1 font-bold text-slate-600">RAM {displayNumber(node.memory_percent)}%</span>
+                          <span className="rounded bg-slate-50 px-2 py-1 font-bold text-slate-600">{displayNumber(node.active_instances)}/{displayNumber(node.max_instances)}</span>
+                          <span className={cn("rounded px-2 py-1 font-bold", node.status === 'ACTIVE' ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700")}>{node.status}</span>
+                        </div>
+                      </div>
+                    ))}
+                    {(!platformMonitor?.core_nodes || platformMonitor.core_nodes.length === 0) && <p className="py-12 text-center text-sm text-slate-400">Nenhum core node registrado.</p>}
+                  </div>
+                </Card>
+
+                <Card className="overflow-hidden">
+                  <div className="border-b border-slate-100 p-5">
+                    <h3 className="text-lg font-bold">Reputacao e Risco</h3>
+                    <p className="text-sm text-slate-500">Scores por numero, tenant e node/IP.</p>
+                  </div>
+                  <div className="divide-y divide-slate-100">
+                    {(platformMonitor?.reputation || []).slice(0, 10).map((item: any) => (
+                      <div key={`${item.scope}-${item.subject_id}`} className="flex items-center justify-between gap-3 p-4">
+                        <div className="min-w-0">
+                          <p className="truncate font-black text-slate-900">{item.subject_id}</p>
+                          <p className="text-xs uppercase text-slate-400">{item.scope}</p>
+                        </div>
+                        <span className={cn("rounded px-3 py-1 text-xs font-black", displayNumber(item.score, 100) >= 90 ? "bg-emerald-50 text-emerald-700" : displayNumber(item.score, 100) >= 70 ? "bg-blue-50 text-blue-700" : displayNumber(item.score, 100) >= 40 ? "bg-amber-50 text-amber-700" : "bg-red-50 text-red-700")}>
+                          {displayNumber(item.score, 100)}
+                        </span>
+                      </div>
+                    ))}
+                    {(!platformMonitor?.reputation || platformMonitor.reputation.length === 0) && <p className="py-12 text-center text-sm text-slate-400">Reputacao sera calculada apos eventos de envio/monitoramento.</p>}
+                  </div>
+                </Card>
+              </div>
+
+              <div className="grid grid-cols-1 gap-6 xl:grid-cols-[380px_1fr]">
+                <Card className="p-6 h-fit">
+                  <h3 className="mb-4 text-lg font-bold">Novo Webhook</h3>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="mb-1 block text-xs font-black uppercase text-slate-400">Nome</label>
+                      <input className="w-full rounded-md border border-slate-200 bg-slate-50 px-4 py-2 text-sm" value={newWebhook.name} onChange={(e) => setNewWebhook({ ...newWebhook, name: e.target.value })} />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-black uppercase text-slate-400">URL</label>
+                      <input className="w-full rounded-md border border-slate-200 bg-slate-50 px-4 py-2 text-sm" placeholder="https://n8n.cliente.com/webhook/wooapi" value={newWebhook.url} onChange={(e) => setNewWebhook({ ...newWebhook, url: e.target.value })} />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-black uppercase text-slate-400">Eventos</label>
+                      <textarea rows={3} className="w-full resize-none rounded-md border border-slate-200 bg-slate-50 px-4 py-2 text-sm" value={newWebhook.events} onChange={(e) => setNewWebhook({ ...newWebhook, events: e.target.value })} />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <label className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold">
+                        <input type="checkbox" checked={newWebhook.retry_enabled} onChange={(e) => setNewWebhook({ ...newWebhook, retry_enabled: e.target.checked })} />
+                        Retry
+                      </label>
+                      <input type="number" min={1} max={20} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm" value={newWebhook.max_attempts} onChange={(e) => setNewWebhook({ ...newWebhook, max_attempts: Number(e.target.value) })} />
+                    </div>
+                    <button onClick={createWebhook} disabled={!selectedWooInstance || !newWebhook.url} className="flex w-full items-center justify-center gap-2 rounded-md bg-primary py-3 text-sm font-bold text-white disabled:opacity-50">
+                      <Plus size={18} />
+                      Criar webhook
+                    </button>
+                  </div>
+                </Card>
+
+                <Card className="overflow-hidden">
+                  <div className="border-b border-slate-100 p-5">
+                    <h3 className="text-lg font-bold">Webhooks da Instância</h3>
+                    <p className="text-sm text-slate-500">Cada webhook é assinado por HMAC e entregue via fila.</p>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[820px] text-left text-sm">
+                      <thead className="bg-slate-50 text-[11px] font-black uppercase text-slate-400">
+                        <tr>
+                          <th className="px-5 py-3">Webhook</th>
+                          <th className="px-5 py-3">URL</th>
+                          <th className="px-5 py-3">Eventos</th>
+                          <th className="px-5 py-3">Status</th>
+                          <th className="px-5 py-3">Ações</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {instanceWebhooks.map((hook) => (
+                          <tr key={hook.id} className="border-t border-slate-100">
+                            <td className="px-5 py-4">
+                              <p className="font-black">{hook.name}</p>
+                              <p className="text-[11px] text-slate-400">max {hook.max_attempts} tentativas</p>
+                            </td>
+                            <td className="max-w-[260px] truncate px-5 py-4 font-mono text-xs text-slate-500">{hook.url}</td>
+                            <td className="px-5 py-4">
+                              <div className="flex max-w-[260px] flex-wrap gap-1">
+                                {(hook.events || []).slice(0, 3).map((event: string) => (
+                                  <span key={event} className="rounded bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-600">{event}</span>
+                                ))}
+                                {(hook.events || []).length === 0 && <span className="rounded bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-600">todos</span>}
+                              </div>
+                            </td>
+                            <td className="px-5 py-4">
+                              <span className={cn("rounded px-2 py-1 text-[10px] font-black", hook.is_active ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500")}>{hook.is_active ? 'ATIVO' : 'PAUSADO'}</span>
+                            </td>
+                            <td className="px-5 py-4">
+                              <div className="flex flex-wrap gap-2">
+                                <button onClick={() => testWebhook(hook)} className="rounded-md bg-slate-900 px-3 py-2 text-xs font-bold text-white">Testar</button>
+                                <button onClick={() => toggleWebhook(hook)} className="rounded-md bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700">{hook.is_active ? 'Pausar' : 'Ativar'}</button>
+                                <button onClick={() => deleteWebhook(hook)} className="rounded-md bg-red-50 px-3 py-2 text-xs font-bold text-red-600">Excluir</button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                        {instanceWebhooks.length === 0 && (
+                          <tr><td colSpan={5} className="px-5 py-12 text-center text-sm text-slate-400">Nenhum webhook cadastrado para esta instância.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </Card>
+              </div>
+
+              <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+                <Card className="overflow-hidden">
+                  <div className="border-b border-slate-100 p-5">
+                    <h3 className="text-lg font-bold">Logs de Entrega</h3>
+                    <p className="text-sm text-slate-500">Tentativas reais feitas pelo worker de webhook.</p>
+                  </div>
+                  <div className="divide-y divide-slate-100">
+                    {webhookLogs.slice(0, 12).map((log) => (
+                      <div key={log.id} className="p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="font-black text-slate-900">{log.event}</p>
+                            <p className="text-xs text-slate-500">{log.webhook_name || 'Webhook'} · tentativa {log.attempt} · HTTP {log.status_code || '-'}</p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {!log.success && <button onClick={() => retryWebhookLog(log.id)} className="rounded bg-slate-900 px-2 py-1 text-[10px] font-black text-white">Reenviar</button>}
+                            <span className={cn("rounded px-2 py-1 text-[10px] font-black", log.success ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700")}>{log.success ? 'OK' : 'FALHA'}</span>
+                          </div>
+                        </div>
+                        <p className="mt-2 truncate font-mono text-[11px] text-slate-400">{log.url}</p>
+                        {log.error && <p className="mt-1 text-xs font-bold text-red-600">{log.error}</p>}
+                      </div>
+                    ))}
+                    {webhookLogs.length === 0 && <p className="py-12 text-center text-sm text-slate-400">Nenhuma tentativa registrada ainda.</p>}
+                  </div>
+                </Card>
+
+                <Card className="overflow-hidden">
+                  <div className="border-b border-slate-100 p-5">
+                    <h3 className="text-lg font-bold">Eventos WooAPI</h3>
+                    <p className="text-sm text-slate-500">Eventos normalizados que geram entregas e integrações.</p>
+                  </div>
+                  <div className="divide-y divide-slate-100">
+                    {webhookEvents.slice(0, 12).map((event) => (
+                      <div key={event.id} className="flex items-center justify-between gap-3 p-4">
+                        <div>
+                          <p className="font-black text-slate-900">{event.event}</p>
+                          <p className="text-xs text-slate-500">{event.created_at}</p>
+                        </div>
+                        <span className={cn("rounded px-2 py-1 text-[10px] font-black", event.status === 'delivered' ? "bg-emerald-50 text-emerald-700" : event.status === 'failed' ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-700")}>{event.status}</span>
+                      </div>
+                    ))}
+                    {webhookEvents.length === 0 && <p className="py-12 text-center text-sm text-slate-400">Nenhum evento registrado ainda.</p>}
+                  </div>
+                </Card>
+              </div>
+
+              <Card className="p-6">
+                <h3 className="mb-4 text-lg font-bold">Integrações prontas para copiar</h3>
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+                  {[
+                    ['n8n', 'Webhook Node recebe eventos WooAPI; HTTP Request responde usando a API key da instância.'],
+                    ['Typebot', 'HTTP Request chama /api/v1/messages/send-text com variáveis como {{telefone}} e {{nome}}.'],
+                    ['Chatwoot', 'Callback envia respostas para WooAPI; sincronização fica em fila dedicada.']
+                  ].map(([title, text]) => (
+                    <div key={title} className="rounded-md border border-slate-200 bg-slate-50 p-4">
+                      <p className="font-black text-slate-900">{title}</p>
+                      <p className="mt-2 text-sm text-slate-500">{text}</p>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+
+              <Card className="p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="text-lg font-bold">Mensagens ao Vivo</h3>
+                    <p className="text-sm text-slate-500">Feed em tempo real das mensagens que chegam e saem nesta instancia.</p>
+                  </div>
+                  <button onClick={() => setLiveMessages([])} className="rounded-md bg-slate-100 px-3 py-2 text-xs font-bold text-slate-600 hover:bg-red-100 hover:text-red-600">
+                    Limpar
+                  </button>
+                </div>
+                <div className="h-80 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50">
+                  {liveMessages.length === 0 ? (
+                    <div className="flex h-full items-center justify-center">
+                      <p className="text-sm text-slate-400">Aguardando mensagens em tempo real...</p>
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-slate-200">
+                      {liveMessages.map((msg, idx) => {
+                        const isInbound = msg.direction === 'inbound' || msg.from_me === 0;
+                        return (
+                          <div key={msg.message_id || idx} className="flex items-start gap-3 px-4 py-3 hover:bg-white/80 transition-colors">
+                            <div className={cn(
+                              "mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-black text-white",
+                              isInbound ? "bg-emerald-500" : "bg-blue-500"
+                            )}>
+                              {isInbound ? 'IN' : 'OUT'}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="truncate text-xs font-bold text-slate-900">
+                                  {isInbound ? (msg.author_push_name || msg.author_phone || msg.from || 'Desconhecido') : (msg.to || 'Desconhecido')}
+                                </p>
+                                <span className="shrink-0 text-[10px] text-slate-400">
+                                  {msg.receivedAt ? new Date(msg.receivedAt).toLocaleTimeString('pt-BR') : ''}
+                                </span>
+                              </div>
+                              <p className="mt-0.5 truncate text-sm text-slate-600">
+                                {msg.content_type === 'text' ? (msg.content_text || msg.text || '') : `[${msg.content_type || 'media'}]`}
+                              </p>
+                              {msg.delivery_status && (
+                                <span className={cn(
+                                  "mt-1 inline-block rounded px-1.5 py-0.5 text-[9px] font-bold uppercase",
+                                  msg.delivery_status === 'received' || msg.delivery_status === 'sent' ? "bg-emerald-50 text-emerald-700" :
+                                  msg.delivery_status === 'failed' ? "bg-red-50 text-red-700" : "bg-slate-100 text-slate-500"
+                                )}>
+                                  {msg.delivery_status}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </Card>
+            </motion.div>
           )}
 
           {activeTab === 'whatsapp' && (
@@ -2408,211 +5185,176 @@ export default function App() {
             >
               <header className="flex items-center justify-between">
                 <div>
-                  <h2 className="text-3xl font-bold">Conexões WhatsApp</h2>
-                  <p className="text-slate-500">Gerencie múltiplas instâncias e conexões.</p>
+                  <h2 className="text-3xl font-bold">Instâncias API</h2>
+                  <p className="text-slate-500">Gerencie suas instâncias WhatsApp com API key, webhook e websocket próprios.</p>
                 </div>
-                <div className="flex gap-3">
-                  <button 
-                    onClick={() => {
-                      const name = prompt("Nome da nova instância Woozapi 1.0 (Baileys):");
-                      if (name) createInstance(name, 'baileys');
-                    }}
-                    className="px-4 py-3 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-all flex items-center gap-2"
-                  >
-                    <Plus size={18} />
-                    Nova 1.0
-                  </button>
-                  <button 
-                    onClick={() => {
-                      const name = prompt("Nome da nova instância Woozapi 2.0 (Whatsmeow):");
-                      if (name) createInstance(name, 'whatsmeow');
-                    }}
-                    className="px-6 py-3 bg-emerald-500 text-white font-bold rounded-xl hover:bg-emerald-600 transition-all flex items-center gap-2 shadow-lg shadow-emerald-100 animate-pulse-subtle"
-                  >
-                    <Plus size={20} />
-                    Nova 2.0 (Premium)
-                  </button>
-                </div>
+                <button
+                  onClick={() => {
+                    const name = prompt("Nome da nova instância:");
+                    if (name) createInstance(name, 'wooapi');
+                  }}
+                  className="px-6 py-3 bg-primary text-white font-bold rounded-xl hover:bg-primary/90 transition-all flex items-center gap-2 shadow-lg shadow-slate-200"
+                >
+                  <Plus size={20} />
+                  Nova Instância
+                </button>
               </header>
 
-              <div className="space-y-12">
-                {/* Woozapi 1.0 - Baileys */}
-                <section>
-                  <div className="flex items-center gap-3 mb-6">
-                    <div className="w-1.5 h-6 bg-slate-300 rounded-full" />
-                    <h3 className="text-xl font-bold text-slate-400 uppercase tracking-widest">Woozapi 1.0 (Baileys)</h3>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {instances.filter(i => !i.engine || i.engine === 'baileys').map((inst) => (
-                      <Card key={inst.id} className="p-6 flex flex-col border-t-4 border-t-slate-200">
-                        <div className="flex items-start justify-between mb-6">
-                          <div className={cn(
-                            "w-12 h-12 rounded-2xl flex items-center justify-center",
-                            inst.status === 'open' ? "bg-emerald-50 text-emerald-600" :
-                            inst.status === 'qr' ? "bg-amber-50 text-amber-600" : "bg-slate-50 text-slate-400"
-                          )}>
-                            {inst.status === 'open' ? <CheckCircle2 size={24} /> : <Smartphone size={24} />}
-                          </div>
-                          <div className="flex gap-2">
-                            <button 
-                              onClick={() => deleteInstance(inst.id)}
-                              className="p-2 text-slate-300 hover:text-red-500 transition-colors"
-                            >
-                              <Trash2 size={18} />
-                            </button>
-                          </div>
-                        </div>
+              <Card className="p-5">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-6">
+                  {[
+                    ['1', 'Crie a instância'],
+                    ['2', 'Leia o QR Code'],
+                    ['3', 'Copie a API key'],
+                    ['4', 'Configure o webhook'],
+                    ['5', 'Teste envio'],
+                    ['6', 'Integre n8n, Typebot ou Chatwoot']
+                  ].map(([step, label]) => (
+                    <div key={step} className="flex items-center gap-3 rounded-md border border-slate-100 bg-slate-50 p-3">
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary text-xs font-black text-white">{step}</span>
+                      <span className="text-xs font-bold text-slate-700">{label}</span>
+                    </div>
+                  ))}
+                </div>
+              </Card>
 
-                        <div className="flex-1">
-                          <h4 className="text-xl font-bold mb-1">{inst.name}</h4>
-                          <div className="flex items-center gap-2 mb-4">
-                            <span className={cn(
-                              "px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider",
-                              inst.status === 'open' ? "bg-emerald-100 text-emerald-700" :
-                              inst.status === 'qr' ? "bg-amber-100 text-amber-700" :
-                              inst.status === 'connecting' ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-500"
-                            )}>
-                              {inst.status === 'open' ? 'Conectado' : 
-                               inst.status === 'qr' ? 'Aguardando QR' :
-                               inst.status === 'connecting' ? 'Conectando...' : 
-                               inst.status === 'reconnecting' ? 'Reconectando...' : 'Desconectado'}
-                            </span>
-                            {inst.phoneConnected && (
-                              <span className="text-xs font-mono text-slate-400">+{inst.phoneConnected}</span>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {instances.map((inst) => {
+                  const connectedPhone = inst.phoneConnected || inst.phone_connected || inst.phone || '';
+                  const profileName = inst.profileName || inst.profile_name || '';
+                  const profilePictureUrl = inst.profilePictureUrl || inst.profile_picture_url || '';
+                  return (
+                  <Card key={inst.id} className="p-6 flex flex-col border-t-4 border-t-primary shadow-lg shadow-slate-100">
+                    <div className="flex items-start justify-between mb-6">
+                      <div className={cn(
+                        "w-12 h-12 rounded-2xl flex items-center justify-center overflow-hidden",
+                        isConnectedStatus(inst.status) ? "bg-primary text-white" :
+                        isQrStatus(inst.status) ? "bg-amber-50 text-amber-600" : "bg-slate-50 text-slate-400"
+                      )}>
+                        {profilePictureUrl ? (
+                          <img src={profilePictureUrl} alt={profileName || inst.name} className="w-full h-full object-cover" />
+                        ) : isConnectedStatus(inst.status) ? <CheckCircle2 size={24} /> : <Smartphone size={24} />}
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => deleteInstance(inst.id)}
+                          className="p-2 text-slate-300 hover:text-red-500 transition-colors"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex-1">
+                      <h4 className="text-xl font-bold mb-1">{inst.name}</h4>
+                      {(profileName || connectedPhone) && (
+                        <p className="text-xs text-slate-500 mb-3">
+                          {profileName || 'WhatsApp'} {connectedPhone ? `+${connectedPhone}` : ''}
+                        </p>
+                      )}
+                      <div className="flex items-center gap-2 mb-4">
+                        <span className={cn(
+                          "px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider",
+                          isConnectedStatus(inst.status) ? "bg-primary text-white" :
+                          isQrStatus(inst.status) ? "bg-amber-100 text-amber-700" :
+                          inst.status === 'connecting' ? "bg-slate-100 text-slate-700" : "bg-slate-100 text-slate-500"
+                        )}>
+                          {instanceStatusLabel(inst.status)}
+                        </span>
+                        {connectedPhone && (
+                          <span className="text-xs font-mono text-primary font-bold">+{connectedPhone}</span>
+                        )}
+                      </div>
+
+                      {isQrStatus(inst.status) && inst.qr ? (
+                        <button
+                          type="button"
+                          onClick={() => setQrModalInstance(inst)}
+                          className="mt-4 p-4 bg-white border-2 border-slate-200 rounded-2xl flex flex-col items-center gap-4 w-full hover:border-slate-300 transition-colors"
+                        >
+                           <img src={inst.qr} alt="QR Code" className="w-48 h-48" />
+                           <p className="text-[10px] text-primary font-bold text-center px-4">
+                              Escaneie com seu WhatsApp para conectar
+                           </p>
+                        </button>
+                      ) : isConnectedStatus(inst.status) ? (
+                        <div className="mt-4 flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                          <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-emerald-600 text-white">
+                            {profilePictureUrl ? (
+                              <img src={profilePictureUrl} alt={profileName || inst.name} className="h-full w-full object-cover" />
+                            ) : (
+                              <Smartphone size={22} />
                             )}
                           </div>
-
-                          {inst.status === 'qr' && inst.qr ? (
-                            <div className="mt-4 p-4 bg-white border-2 border-slate-100 rounded-2xl flex flex-col items-center gap-4">
-                               <img src={inst.qr} alt="QR Code" className="w-48 h-48" />
-                               <p className="text-[10px] text-slate-400 text-center px-4">
-                                 Escaneie com seu WhatsApp para conectar
-                               </p>
-                            </div>
-                          ) : inst.status === 'open' ? (
-                            <div className="mt-4 p-4 bg-emerald-50/50 rounded-xl border border-emerald-100">
-                              <p className="text-xs text-emerald-700 font-medium">Instância pronta para uso.</p>
-                            </div>
-                          ) : inst.status === 'none' || inst.status === 'close' ? (
-                            <button 
-                              onClick={() => connectInstance(inst.id)}
-                              className="mt-4 w-full py-3 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition-all"
-                            >
-                              Gerar QR Code
-                            </button>
-                          ) : null}
+                          <div className="min-w-0 text-left">
+                            <p className="truncate text-sm font-black text-slate-900">{profileName || 'WhatsApp conectado'}</p>
+                            <p className="truncate font-mono text-xs font-bold text-emerald-700">
+                              {connectedPhone ? `+${connectedPhone}` : 'Numero sincronizando...'}
+                            </p>
+                          </div>
                         </div>
+                      ) : isDisconnectedStatus(inst.status) ? (
+                        <button
+                          onClick={() => connectInstance(inst.id)}
+                          className="mt-4 w-full py-3 bg-primary text-white font-bold rounded-xl hover:bg-primary/90 transition-all shadow-md shadow-slate-200"
+                        >
+                          Gerar QR Code
+                        </button>
+                      ) : null}
+                      {(inst.webhook?.webhooks_url || inst.webhook_endpoint) && (
+                        <div className="mt-4 rounded-md border border-slate-100 bg-slate-50 px-3 py-2">
+                          <p className="text-[10px] font-black uppercase text-slate-400">Webhook proprio</p>
+                          <p className="mt-1 truncate font-mono text-xs text-slate-600">
+                            {inst.webhook?.webhooks_url || inst.webhook_endpoint}
+                          </p>
+                        </div>
+                      )}
+                    </div>
 
-                        {inst.status === 'open' && (
-                          <button 
-                            onClick={() => logoutInstance(inst.id)}
-                            className="mt-6 text-sm font-bold text-red-600 hover:underline"
-                          >
-                            Desconectar
-                          </button>
-                        )}
-                      </Card>
-                    ))}
-                    {instances.filter(i => !i.engine || i.engine === 'baileys').length === 0 && (
-                      <div className="col-span-full py-10 border-2 border-dashed border-slate-100 rounded-3xl text-center text-slate-400 text-xs">
-                        Nenhuma instância Woozapi 1.0 encontrada.
-                      </div>
+                    {isConnectedStatus(inst.status) && (
+                      <button
+                        onClick={() => logoutInstance(inst.id)}
+                        className="mt-6 text-sm font-bold text-red-600 hover:underline"
+                      >
+                        Desconectar
+                      </button>
                     )}
-                  </div>
-                </section>
-
-                {/* Woozapi 2.0 - Whatsmeow */}
-                <section>
-                  <div className="flex items-center gap-3 mb-6">
-                    <div className="w-1.5 h-6 bg-emerald-500 rounded-full animate-pulse" />
-                    <h3 className="text-xl font-bold text-emerald-600 uppercase tracking-widest">Woozapi 2.0 (Whatsmeow)</h3>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {instances.filter(i => i.engine === 'whatsmeow').map((inst) => (
-                      <Card key={inst.id} className="p-6 flex flex-col border-t-4 border-t-emerald-500 shadow-lg shadow-emerald-50">
-                        <div className="flex items-start justify-between mb-6">
-                          <div className={cn(
-                            "w-12 h-12 rounded-2xl flex items-center justify-center",
-                            inst.status === 'open' ? "bg-emerald-500 text-white" :
-                            inst.status === 'qr' ? "bg-amber-50 text-amber-600" : "bg-emerald-50 text-emerald-400"
-                          )}>
-                            {inst.status === 'open' ? <CheckCircle2 size={24} /> : <Smartphone size={24} />}
-                          </div>
-                          <div className="flex gap-2">
-                            <button 
-                              onClick={() => deleteInstance(inst.id)}
-                              className="p-2 text-slate-300 hover:text-red-500 transition-colors"
-                            >
-                              <Trash2 size={18} />
-                            </button>
-                          </div>
-                        </div>
-
-                        <div className="flex-1">
-                          <h4 className="text-xl font-bold mb-1">{inst.name}</h4>
-                          <div className="flex items-center gap-2 mb-4">
-                            <span className={cn(
-                              "px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider",
-                              inst.status === 'open' ? "bg-emerald-500 text-white" :
-                              inst.status === 'qr' ? "bg-amber-100 text-amber-700" :
-                              inst.status === 'connecting' ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"
-                            )}>
-                              {inst.status === 'open' ? 'Conectado (v2.0)' : 
-                               inst.status === 'qr' ? 'Aguardando QR' :
-                               inst.status === 'connecting' ? 'Conectando...' : 
-                               inst.status === 'reconnecting' ? 'Reconectando...' : 'Desconectado'}
-                            </span>
-                            {inst.phoneConnected && (
-                              <span className="text-xs font-mono text-emerald-600 font-bold">+{inst.phoneConnected}</span>
-                            )}
-                          </div>
-
-                          {inst.status === 'qr' && inst.qr ? (
-                            <div className="mt-4 p-4 bg-white border-2 border-emerald-100 rounded-2xl flex flex-col items-center gap-4">
-                               <img src={inst.qr} alt="QR Code" className="w-48 h-48" />
-                               <p className="text-[10px] text-emerald-600 font-bold text-center px-4">
-                                 Escaneie para conectar com Woozapi 2.0
-                               </p>
-                            </div>
-                          ) : inst.status === 'open' ? (
-                            <div className="mt-4 p-4 bg-emerald-500/10 rounded-xl border border-emerald-200">
-                              <p className="text-xs text-emerald-700 font-bold">Instância de alta estabilidade ativa.</p>
-                            </div>
-                          ) : inst.status === 'none' || inst.status === 'close' ? (
-                            <button 
-                              onClick={() => connectInstance(inst.id)}
-                              className="mt-4 w-full py-3 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition-all shadow-md shadow-emerald-200"
-                            >
-                              Gerar QR Code 2.0
-                            </button>
-                          ) : null}
-                        </div>
-
-                        {inst.status === 'open' && (
-                          <button 
-                            onClick={() => logoutInstance(inst.id)}
-                            className="mt-6 text-sm font-bold text-red-600 hover:underline"
-                          >
-                            Desconectar
-                          </button>
-                        )}
-                      </Card>
-                    ))}
-                    {instances.filter(i => i.engine === 'whatsmeow').length === 0 && (
-                      <div className="col-span-full py-10 border-2 border-dashed border-emerald-100 rounded-3xl text-center text-emerald-400 text-xs">
-                        Nenhuma instância Woozapi 2.0 (Whatsmeow) encontrada.
-                      </div>
-                    )}
-                  </div>
-                </section>
-
+                    <div className="mt-5 grid grid-cols-2 gap-2 border-t border-slate-100 pt-4 sm:grid-cols-4">
+                      <button
+                        onClick={() => copyInstanceApiKey(inst.api_key)}
+                        className="rounded-md bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-200"
+                      >
+                        Copiar API key
+                      </button>
+                      <button
+                        onClick={() => copyInstanceWebhook(inst)}
+                        className="rounded-md bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-200"
+                      >
+                        Copiar webhook
+                      </button>
+                      <button
+                        onClick={() => regenerateInstanceApiKey(inst.id)}
+                        className="rounded-md bg-slate-900 px-3 py-2 text-xs font-bold text-white hover:bg-primary"
+                      >
+                        Regenerar key
+                      </button>
+                      <button
+                        onClick={() => setTesterInstance(inst)}
+                        className="rounded-md bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-100"
+                      >
+                        <Bug size={12} className="inline mr-1" /> Testar
+                      </button>
+                    </div>
+                  </Card>
+                  );
+                })}
                 {instances.length === 0 && (
-                  <div className="col-span-full py-20 text-center">
+                  <div className="col-span-full py-20 text-center border-2 border-dashed border-slate-200 rounded-3xl">
                     <div className="w-16 h-16 bg-slate-50 text-slate-300 rounded-full flex items-center justify-center mx-auto mb-4">
                       <QrCode size={32} />
                     </div>
                     <h3 className="text-lg font-bold text-slate-800">Nenhuma instância</h3>
-                    <p className="text-slate-500 mt-2">Clique em "Nova 1.0" ou "Nova 2.0" para começar.</p>
+                    <p className="text-slate-500 mt-2">Clique em "Nova Instância" para começar.</p>
                   </div>
                 )}
               </div>
@@ -2620,6 +5362,89 @@ export default function App() {
           )}
         </AnimatePresence>
       </main>
+
+      <AnimatePresence>
+        {qrModalInstance && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden"
+            >
+              <div className="p-8 text-center space-y-6">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-xl font-bold text-slate-800">Conectar WhatsApp</h3>
+                  <button
+                    onClick={() => setQrModalInstance(null)}
+                    className="p-2 hover:bg-slate-100 rounded-full text-slate-400 transition-colors"
+                  >
+                    <XCircle size={24} />
+                  </button>
+                </div>
+
+                <div className="py-4 flex flex-col items-center gap-6">
+                  {isQrStatus(qrModalInstance.status) && qrModalInstance.qr ? (
+                    <div className="bg-white p-4 rounded-2xl border-4 border-slate-200 shadow-inner">
+                      <img src={qrModalInstance.qr} alt="QR Code" className="w-64 h-64" />
+                    </div>
+                  ) : (
+                    <div className="w-64 h-64 bg-slate-50 rounded-2xl flex flex-col items-center justify-center gap-4 text-slate-400">
+                      <RefreshCw className="animate-spin" size={48} />
+                      <p className="text-sm font-medium">Gerando QR Code...</p>
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <p className="text-lg font-bold text-slate-900">
+                      {qrModalInstance.name}
+                    </p>
+                    <div className="flex items-center justify-center gap-2">
+                       <div className={cn(
+                         "w-2 h-2 rounded-full animate-pulse",
+                         isQrStatus(qrModalInstance.status) ? "bg-amber-500" : "bg-primary"
+                       )} />
+                       <p className="text-sm text-slate-500 font-medium">
+                         {isQrStatus(qrModalInstance.status) ? 'Escaneie agora' : 'Iniciando conexão...'}
+                       </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => connectInstance(qrModalInstance.id)}
+                    className="inline-flex items-center gap-2 rounded-md bg-slate-900 px-4 py-2 text-sm font-bold text-white hover:bg-primary transition-colors"
+                  >
+                    <RefreshCw size={16} />
+                    Gerar novo QR
+                  </button>
+                </div>
+
+                <div className="bg-slate-50 p-4 rounded-2xl">
+                   <p className="text-xs text-slate-700 font-medium leading-relaxed">
+                     Abra o WhatsApp no seu celular {'>'} Aparelhos conectados {'>'} Conectar um aparelho e aponte a câmera para o código acima.
+                   </p>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {testerInstance && (
+          <InstanceTester
+            instance={testerInstance}
+            apiFetch={apiFetch}
+            onClose={() => setTesterInstance(null)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

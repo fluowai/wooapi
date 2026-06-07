@@ -1,0 +1,137 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "WooAPI",
+    "version": "2.0.0",
+    "description": "API WooAPI multi-instancia para WhatsApp com webhooks, filas, campanhas, CRM, integracoes e observabilidade. Botoes nativos oficiais nao fazem parte deste produto."
+  },
+  "servers": [
+    { "url": "http://localhost:3002", "description": "Desenvolvimento local" }
+  ],
+  "tags": [
+    { "name": "Instances" },
+    { "name": "Messages" },
+    { "name": "Contacts" },
+    { "name": "Profile" },
+    { "name": "Groups" },
+    { "name": "Campaigns" },
+    { "name": "CRM" },
+    { "name": "Integrations" }
+  ],
+  "components": {
+    "securitySchemes": {
+      "InstanceKey": { "type": "apiKey", "in": "header", "name": "x-api-key" },
+      "BearerAuth": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT" },
+      "WooInstanceToken": { "type": "apiKey", "in": "header", "name": "token" },
+      "AdminToken": { "type": "apiKey", "in": "header", "name": "admintoken" }
+    },
+    "schemas": {
+      "Target": {
+        "type": "object",
+        "properties": {
+          "jid": { "type": "string", "examples": ["5548999999999@s.whatsapp.net"] },
+          "number": { "type": "string", "examples": ["5548999999999"] }
+        }
+      },
+      "ApiResult": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean" },
+          "message": { "type": "string" },
+          "data": {}
+        }
+      }
+    }
+  },
+  "paths": {
+    "/api/v1/instances": {
+      "get": { "tags": ["Instances"], "security": [{ "BearerAuth": [] }], "summary": "Listar instancias", "responses": { "200": { "description": "OK" } } },
+      "post": { "tags": ["Instances"], "security": [{ "BearerAuth": [] }], "summary": "Criar instancia", "responses": { "200": { "description": "Criada" } } }
+    },
+    "/api/v1/instances/{id}/status": {
+      "get": { "tags": ["Instances"], "security": [{ "InstanceKey": [] }], "summary": "Status e identidade da conexao", "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }], "responses": { "200": { "description": "OK" } } }
+    },
+    "/api/v1/instances/{id}/send-text": {
+      "post": { "tags": ["Messages"], "security": [{ "InstanceKey": [] }], "summary": "Enviar texto", "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/Target" }, { "type": "object", "required": ["text"], "properties": { "text": { "type": "string" } } }] } } } }, "responses": { "200": { "description": "Enviada" } } }
+    },
+    "/api/v1/instances/{id}/send-media": {
+      "post": { "tags": ["Messages"], "security": [{ "InstanceKey": [] }], "summary": "Enviar imagem, video, audio ou documento", "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }], "responses": { "200": { "description": "Enviada" } } }
+    },
+    "/api/v1/instances/{id}/send-location": {
+      "post": { "tags": ["Messages"], "security": [{ "InstanceKey": [] }], "summary": "Enviar localizacao", "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }], "responses": { "200": { "description": "Enviada" } } }
+    },
+    "/api/v1/instances/{id}/send-contact": {
+      "post": { "tags": ["Messages"], "security": [{ "InstanceKey": [] }], "summary": "Enviar contato vCard", "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }], "responses": { "200": { "description": "Enviado" } } }
+    },
+    "/api/v1/instances/{id}/send-reply": {
+      "post": { "tags": ["Messages"], "security": [{ "InstanceKey": [] }], "summary": "Responder citando uma mensagem", "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }], "responses": { "200": { "description": "Enviada" } } }
+    },
+    "/api/v1/instances/{id}/messages/react": {
+      "post": { "tags": ["Messages"], "security": [{ "InstanceKey": [] }], "summary": "Reagir a mensagem", "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }], "responses": { "200": { "description": "OK" } } }
+    },
+    "/api/v1/instances/{id}/messages/read": {
+      "post": { "tags": ["Messages"], "security": [{ "InstanceKey": [] }], "summary": "Marcar mensagem como lida", "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }], "responses": { "200": { "description": "OK" } } }
+    },
+    "/api/v1/instances/{id}/messages/edit": {
+      "post": { "tags": ["Messages"], "security": [{ "InstanceKey": [] }], "summary": "Editar mensagem enviada", "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }], "responses": { "200": { "description": "OK" } } }
+    },
+    "/api/v1/instances/{id}/messages/delete": {
+      "post": { "tags": ["Messages"], "security": [{ "InstanceKey": [] }], "summary": "Apagar mensagem para todos", "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }], "responses": { "200": { "description": "OK" } } }
+    },
+    "/api/v1/instances/{id}/messages/download": {
+      "post": { "tags": ["Messages"], "security": [{ "InstanceKey": [] }], "summary": "Baixar midia recebida recente por message_id", "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }], "responses": { "200": { "description": "Arquivo binario" } } }
+    },
+    "/api/v1/instances/{id}/presence": {
+      "post": { "tags": ["Messages"], "security": [{ "InstanceKey": [] }], "summary": "Disponivel, digitando, gravando ou pausado", "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }], "responses": { "200": { "description": "OK" } } }
+    },
+    "/api/v1/instances/{id}/contacts": {
+      "get": { "tags": ["Contacts"], "security": [{ "InstanceKey": [] }], "summary": "Sincronizar contatos conhecidos", "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }], "responses": { "200": { "description": "OK" } } }
+    },
+    "/api/v1/instances/{id}/contacts/check": {
+      "post": { "tags": ["Contacts"], "security": [{ "InstanceKey": [] }], "summary": "Verificar cadastro no WhatsApp", "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }], "responses": { "200": { "description": "OK" } } }
+    },
+    "/api/v1/instances/{id}/contacts/info": {
+      "post": { "tags": ["Contacts"], "security": [{ "InstanceKey": [] }], "summary": "Nome, foto, status e dados business", "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }], "responses": { "200": { "description": "OK" } } }
+    },
+    "/api/v1/instances/{id}/contacts/block": {
+      "post": { "tags": ["Contacts"], "security": [{ "InstanceKey": [] }], "summary": "Bloquear ou desbloquear contato", "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }], "responses": { "200": { "description": "OK" } } }
+    },
+    "/api/v1/instances/{id}/chats/state": {
+      "post": { "tags": ["Contacts"], "security": [{ "InstanceKey": [] }], "summary": "Arquivar, silenciar ou fixar conversa", "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }], "responses": { "200": { "description": "OK" } } }
+    },
+    "/api/v1/instances/{id}/profile": {
+      "get": { "tags": ["Profile"], "security": [{ "InstanceKey": [] }], "summary": "Consultar perfil, privacidade e business", "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }], "responses": { "200": { "description": "OK" } } }
+    },
+    "/api/v1/instances/{id}/groups": {
+      "get": { "tags": ["Groups"], "security": [{ "InstanceKey": [] }], "summary": "Listar grupos", "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }], "responses": { "200": { "description": "OK" } } },
+      "post": { "tags": ["Groups"], "security": [{ "InstanceKey": [] }], "summary": "Criar grupo", "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }], "responses": { "200": { "description": "Criado" } } }
+    },
+    "/api/campaigns": {
+      "get": { "tags": ["Campaigns"], "security": [{ "BearerAuth": [] }], "summary": "Listar campanhas", "responses": { "200": { "description": "OK" } } },
+      "post": { "tags": ["Campaigns"], "security": [{ "BearerAuth": [] }], "summary": "Criar campanha persistente", "responses": { "200": { "description": "Criada" } } }
+    },
+    "/api/campaigns/{id}/start": {
+      "post": { "tags": ["Campaigns"], "security": [{ "BearerAuth": [] }], "summary": "Agendar/iniciar campanha", "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }], "responses": { "200": { "description": "Enfileirada" } } }
+    },
+    "/api/campaigns/{id}/pause": {
+      "post": { "tags": ["Campaigns"], "security": [{ "BearerAuth": [] }], "summary": "Pausar campanha", "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }], "responses": { "200": { "description": "Pausada" } } }
+    },
+    "/api/campaigns/{id}/cancel": {
+      "post": { "tags": ["Campaigns"], "security": [{ "BearerAuth": [] }], "summary": "Cancelar campanha", "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }], "responses": { "200": { "description": "Cancelada" } } }
+    },
+    "/api/campaigns/{id}/report": {
+      "get": { "tags": ["Campaigns"], "security": [{ "BearerAuth": [] }], "summary": "Relatorio enviado, entregue, lido e falha", "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }], "responses": { "200": { "description": "OK" } } }
+    },
+    "/api/quick-replies": {
+      "get": { "tags": ["CRM"], "security": [{ "BearerAuth": [] }], "summary": "Listar respostas rapidas", "responses": { "200": { "description": "OK" } } },
+      "post": { "tags": ["CRM"], "security": [{ "BearerAuth": [] }], "summary": "Criar resposta rapida", "responses": { "200": { "description": "Criada" } } }
+    },
+    "/api/v1/instances/{id}/integrations/chatwoot": {
+      "put": { "tags": ["Integrations"], "security": [{ "InstanceKey": [] }], "summary": "Configurar Chatwoot", "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }], "responses": { "200": { "description": "OK" } } }
+    },
+    "/globalwebhook": {
+      "get": { "tags": ["Integrations"], "security": [{ "AdminToken": [] }], "summary": "Consultar webhook global", "responses": { "200": { "description": "OK" } } },
+      "put": { "tags": ["Integrations"], "security": [{ "AdminToken": [] }], "summary": "Configurar webhook global", "responses": { "200": { "description": "OK" } } }
+    }
+  }
+}

@@ -1,6 +1,6 @@
 {
-  "name": "Wasenderbr",
-  "description": "Plataforma SaaS de automação de vendas: captação de leads no Google Maps, disparos via WhatsApp com Agentes IA, gestão de planos e multi-tenancy.",
+  "name": "WooAPI",
+  "description": "Plataforma SaaS API-first para vender e gerenciar instâncias WhatsApp com API, Webhook e WebSocket.",
   "requestFramePermissions": [
     "geolocation"
   ]

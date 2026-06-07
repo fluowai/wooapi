@@ -1,40 +1,45 @@
-# Estágio 1: Build do Go Bridge
-FROM golang:1.24-alpine AS go-builder
-# Instalar git para baixar dependências que o exigem
+# syntax=docker/dockerfile:1
+
+FROM golang:1.25-alpine AS go-builder
 RUN apk add --no-cache git
 WORKDIR /app/go-bridge
-COPY go-bridge/ .
-RUN go mod download && go build -o bridge .
+COPY go-bridge/go.mod go-bridge/go.sum ./
+RUN go mod download
+COPY go-bridge/ ./
+RUN go build -o bridge .
 
-# Estágio 2: Build do Node Server e Frontend
-FROM node:20-alpine AS node-builder
+FROM node:22-alpine AS node-builder
 WORKDIR /app
-
-# Instalar ferramentas de build (apk é mais leve que apt-get)
 RUN apk add --no-cache python3 make g++
-
 COPY package*.json ./
-# Limite de memória rigoroso para o processo do NPM/Node
-ENV NODE_OPTIONS="--max-old-space-size=350"
-RUN npm install --no-audit --progress=false --loglevel=error --no-fund
-
+RUN npm ci --no-audit --no-fund
 COPY . .
-# Rodar build com limite de memória
 RUN npm run build && npm run build:server
 
-# Estágio 3: Runtime leve (Alpine)
-FROM node:20-alpine
+FROM node:22-alpine
 WORKDIR /app
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV DATA_DIR=/data
+ENV UPLOAD_DIR=/data/uploads
+ENV BRIDGE_URL=http://127.0.0.1:3001
+ENV NODE_URL=http://127.0.0.1:3000
+ENV BRIDGE_DB_PATH=/data/wooapi_bridge.db
 
-# Copiamos apenas os artefatos necessários
+RUN apk add --no-cache ca-certificates tini
 COPY --from=node-builder /app/package*.json ./
 COPY --from=node-builder /app/node_modules ./node_modules
 COPY --from=node-builder /app/dist ./dist
-COPY --from=node-builder /app/dist_server ./dist_server
+COPY --from=node-builder /app/src ./src
+COPY --from=node-builder /app/server.ts ./server.ts
+COPY --from=node-builder /app/docs ./docs
+COPY --from=node-builder /app/migrations ./migrations
 COPY --from=go-builder /app/go-bridge/bridge ./go-bridge/bridge
 
-# Porta dinâmica
+RUN mkdir -p /data/uploads
+VOLUME ["/data"]
 EXPOSE 3000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD node -e "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-# Execução otimizada
-CMD ./go-bridge/bridge & node dist_server/server.js
+ENTRYPOINT ["/sbin/tini", "--"]
+CMD ["sh", "-c", "./go-bridge/bridge & npm run start"]

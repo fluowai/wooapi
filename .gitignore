@@ -6,17 +6,51 @@ coverage/
 *.log
 .env*
 !.env.example
+logs/
+data/
+uploads/
+scratch/
+.codex/
+docker-stack*.yml
+!docker-stack.example.yml
+!docker-stack.portainer.yml
 
 # WhatsApp Auth
-auth_info_baileys_*
 auth_sessions/
 
 # Databases
 *.db
+*.db-shm
+*.db-wal
 *.db-journal
 *.db.bak
+*.sqlite
+*.sqlite3
+backups/
 
 # Go Bridge binaries
 go-bridge/bridge
 go-bridge/bridge.exe
 go-bridge/bridge.db
+go-bridge/*.exe
+go-bridge/*.db
+go-bridge/*.db-shm
+go-bridge/*.db-wal
+go-bridge/media-cache/
+go-bridge/*.exe~
+
+# Local scratch/fix artifacts
+nul
+tsx
+wooapi@1.0.0
+cleanup-final.ts
+final-fix.ts
+final-heal.ts
+finisher.ts
+fix.ts
+heal.ts
+mega-fix.ts
+refactor.ts
+super-fix.ts
+test-supabase.ts
+wrap-fix.ts

@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WooAPI - Documentacao da API WhatsApp</title>
+  <meta name="description" content="Documentacao publica da WooAPI: API WhatsApp multi-instancia com envio de mensagens, webhooks, Postman, n8n, campanhas, CRM e observabilidade.">
+  <style>
+    :root {
+      --bg: #f6f8fb;
+      --paper: #ffffff;
+      --ink: #111827;
+      --muted: #667085;
+      --line: #dde3ea;
+      --brand: #16a34a;
+      --brand-dark: #15803d;
+      --soft: #ecfdf3;
+      --code: #0f172a;
+      --code-text: #dbeafe;
+      --warn: #fff7ed;
+      --warn-line: #fed7aa;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.55;
+    }
+    a { color: var(--brand-dark); text-decoration: none; font-weight: 700; }
+    a:hover { text-decoration: underline; }
+    .layout { display: grid; grid-template-columns: 292px minmax(0, 1fr); min-height: 100vh; }
+    aside {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow: auto;
+      padding: 24px 20px;
+      background: #0f172a;
+      color: white;
+      border-right: 1px solid #111827;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; }
+    .logo {
+      width: 42px; height: 42px; display: grid; place-items: center;
+      background: var(--brand); border-radius: 10px; font-weight: 900;
+    }
+    .brand strong { display: block; font-size: 18px; }
+    .brand span { display: block; color: #aab6c8; font-size: 12px; }
+    nav { display: grid; gap: 4px; }
+    nav a {
+      color: #d7deea; padding: 9px 10px; border-radius: 8px; font-size: 14px; font-weight: 700;
+    }
+    nav a:hover { background: #1e293b; color: white; text-decoration: none; }
+    main { padding: 34px clamp(20px, 4vw, 60px) 80px; }
+    .hero {
+      display: grid;
+      gap: 18px;
+      max-width: 1180px;
+      padding: 34px;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      box-shadow: 0 12px 32px rgba(15, 23, 42, 0.06);
+    }
+    h1 { font-size: clamp(34px, 5vw, 62px); line-height: 1.02; margin: 0; letter-spacing: 0; }
+    h2 { font-size: 30px; margin: 44px 0 16px; letter-spacing: 0; }
+    h3 { font-size: 20px; margin: 24px 0 10px; }
+    h4 { font-size: 16px; margin: 18px 0 8px; }
+    p { margin: 0 0 12px; }
+    .lead { max-width: 860px; color: #475467; font-size: 18px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; }
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-height: 42px; padding: 10px 15px; border-radius: 8px;
+      border: 1px solid var(--line); background: white; color: #111827; font-weight: 900;
+    }
+    .btn.primary { background: var(--brand); border-color: var(--brand); color: white; }
+    .btn:hover { text-decoration: none; transform: translateY(-1px); }
+    .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+    .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .card {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 20px;
+    }
+    .metric { display: grid; gap: 5px; }
+    .metric strong { font-size: 28px; }
+    .metric span { color: var(--muted); font-size: 13px; font-weight: 700; }
+    .notice {
+      background: var(--warn);
+      border: 1px solid var(--warn-line);
+      border-radius: 8px;
+      padding: 16px;
+    }
+    .ok {
+      background: var(--soft);
+      border: 1px solid #bbf7d0;
+      border-radius: 8px;
+      padding: 16px;
+    }
+    code {
+      color: #0f172a;
+      background: #e8eef6;
+      padding: 2px 5px;
+      border-radius: 5px;
+      font-size: 0.94em;
+    }
+    pre {
+      margin: 12px 0 18px;
+      padding: 16px;
+      overflow: auto;
+      background: var(--code);
+      color: var(--code-text);
+      border-radius: 8px;
+      border: 1px solid #1e293b;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    pre code { color: inherit; background: transparent; padding: 0; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    th, td { padding: 12px 14px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { background: #f1f5f9; font-size: 12px; text-transform: uppercase; color: #475467; }
+    tr:last-child td { border-bottom: 0; }
+    ul { margin: 8px 0 16px; padding-left: 22px; }
+    li { margin: 5px 0; }
+    .pill {
+      display: inline-flex; align-items: center; min-height: 24px;
+      padding: 3px 8px; border-radius: 999px; background: #e8eef6;
+      color: #344054; font-size: 12px; font-weight: 900;
+    }
+    .section { max-width: 1180px; }
+    .endpoint { font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace; font-size: 13px; }
+    .method { font-weight: 900; color: var(--brand-dark); }
+    .footer { margin-top: 60px; color: var(--muted); font-size: 13px; }
+    @media (max-width: 960px) {
+      .layout { display: block; }
+      aside { position: relative; height: auto; }
+      .grid, .grid.two { grid-template-columns: 1fr; }
+      main { padding: 22px 16px 60px; }
+      .hero { padding: 22px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside>
+      <div class="brand">
+        <div class="logo">W</div>
+        <div><strong>WooAPI</strong><span>Documentacao publica</span></div>
+      </div>
+      <nav>
+        <a href="#visao-geral">Visao geral</a>
+        <a href="#links">Links rapidos</a>
+        <a href="#autenticacao">Autenticacao</a>
+        <a href="#primeiros-passos">Primeiros passos</a>
+        <a href="#instancias">Instancias</a>
+        <a href="#mensagens">Mensagens</a>
+        <a href="#webhooks">Webhooks</a>
+        <a href="#n8n">n8n</a>
+        <a href="#postman">Postman</a>
+        <a href="#contatos">Contatos e chats</a>
+        <a href="#perfil-grupos">Perfil e grupos</a>
+        <a href="#campanhas">Campanhas e CRM</a>
+        <a href="#admin">Admin e producao</a>
+        <a href="#limitacoes">Limitacoes comerciais</a>
+      </nav>
+    </aside>
+    <main>
+      <section class="hero" id="visao-geral">
+        <span class="pill">WooAPI WhatsApp REST + Webhooks</span>
+        <h1>API WhatsApp multi-instancia para integracoes comerciais</h1>
+        <p class="lead">A WooAPI permite conectar instancias WhatsApp, enviar mensagens, receber eventos por webhook, integrar com n8n, Chatwoot e Typebot, operar campanhas com fila e acompanhar logs de entrega. Cada instancia possui API key propria, webhook proprio, eventos, logs e limites comerciais por plano.</p>
+        <div class="actions">
+          <a class="btn primary" href="/postman/wooapi.postman_collection.json">Baixar Postman</a>
+          <a class="btn" href="/openapi.json">OpenAPI JSON</a>
+          <a class="btn" href="/docs">Swagger</a>
+          <a class="btn" href="/docs/wooapi-api.md">Markdown tecnico</a>
+        </div>
+      </section>
+
+      <section class="section" id="links">
+        <h2>Links Rapidos</h2>
+        <div class="grid">
+          <div class="card metric"><span>Base local</span><strong>3002</strong><code>http://localhost:3002</code></div>
+          <div class="card metric"><span>Autenticacao da instancia</span><strong>x-api-key</strong><code>woo_xxx</code></div>
+          <div class="card metric"><span>Eventos</span><strong>Webhook</strong><code>X-WooAPI-Signature</code></div>
+        </div>
+        <table>
+          <thead><tr><th>Recurso</th><th>URL</th><th>Uso</th></tr></thead>
+          <tbody>
+            <tr><td>Documentacao visual</td><td><a href="/docs/wooapi">/docs/wooapi</a></td><td>Pagina publica para clientes e integradores.</td></tr>
+            <tr><td>Swagger</td><td><a href="/docs">/docs</a></td><td>Testes tecnicos baseados no OpenAPI.</td></tr>
+            <tr><td>Postman</td><td><a href="/postman/wooapi.postman_collection.json">/postman/wooapi.postman_collection.json</a></td><td>Collection importavel no Postman.</td></tr>
+            <tr><td>OpenAPI</td><td><a href="/openapi.json">/openapi.json</a></td><td>Contrato para SDKs, gateways e automacoes.</td></tr>
+            <tr><td>Termos</td><td><a href="/terms">/terms</a></td><td>Termos de uso comercial da WooAPI.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="section" id="autenticacao">
+        <h2>Autenticacao</h2>
+        <div class="grid two">
+          <div class="card">
+            <h3>API da instancia</h3>
+            <p>Use para enviar mensagens, consultar status, configurar webhooks, contatos, perfil, grupos e integracoes da instancia.</p>
+            <pre><code>x-api-key: woo_sua_api_key</code></pre>
+            <p>Tambem aceitamos <code>token: woo_sua_api_key</code> em rotas simplificadas e <code>Authorization: Bearer woo_sua_api_key</code> em alguns endpoints publicos.</p>
+          </div>
+          <div class="card">
+            <h3>Painel e administracao</h3>
+            <p>Use o JWT obtido no login para endpoints de conta, campanhas, CRM, usuarios, planos e administracao.</p>
+            <pre><code>Authorization: Bearer jwt_da_conta</code></pre>
+            <p>Endpoints administrativos externos podem exigir <code>admintoken</code>, configurado no ambiente.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="primeiros-passos">
+        <h2>Primeiros Passos</h2>
+        <h3>1. Criar ou obter uma instancia</h3>
+        <p>No painel, crie uma nova instancia. A resposta da API ja entrega <code>api_key</code>, <code>webhook_secret</code> e URLs de webhook da instancia.</p>
+        <pre><code>curl -X POST http://localhost:3002/api/v1/instances \
+  -H "Authorization: Bearer JWT_DA_CONTA" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Atendimento Comercial",
+    "webhook_url": "https://seu-n8n.com/webhook/wooapi"
+  }'</code></pre>
+        <h3>2. Conectar o WhatsApp</h3>
+        <pre><code>curl -X POST http://localhost:3002/api/v1/instances/17/connect \
+  -H "x-api-key: woo_sua_api_key"</code></pre>
+        <h3>3. Enviar uma mensagem</h3>
+        <pre><code>curl -X POST http://localhost:3002/api/v1/instances/17/send-text \
+  -H "x-api-key: woo_sua_api_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "number": "5548999999999",
+    "text": "Ola! Mensagem enviada pela WooAPI."
+  }'</code></pre>
+      </section>
+
+      <section class="section" id="instancias">
+        <h2>Instancias</h2>
+        <p>Instancias representam uma sessao WhatsApp independente. Cada instancia tem status, QR Code, numero conectado, perfil, API key, webhook proprio, logs e limites de uso.</p>
+        <table>
+          <thead><tr><th>Metodo</th><th>Endpoint</th><th>Descricao</th></tr></thead>
+          <tbody>
+            <tr><td class="method">GET</td><td class="endpoint">/api/v1/instances</td><td>Lista instancias da conta autenticada por JWT.</td></tr>
+            <tr><td class="method">POST</td><td class="endpoint">/api/v1/instances</td><td>Cria instancia e retorna API key, secret e pacote de webhook.</td></tr>
+            <tr><td class="method">GET</td><td class="endpoint">/api/v1/instances/:id</td><td>Detalhes da instancia usando API key.</td></tr>
+            <tr><td class="method">GET</td><td class="endpoint">/api/v1/instances/:id/status</td><td>Status, telefone, JID e identidade conectada.</td></tr>
+            <tr><td class="method">GET</td><td class="endpoint">/api/v1/instances/:id/qr</td><td>QR Code atual quando a instancia estiver aguardando conexao.</td></tr>
+            <tr><td class="method">POST</td><td class="endpoint">/api/v1/instances/:id/connect</td><td>Inicia conexao e gera QR quando necessario.</td></tr>
+            <tr><td class="method">POST</td><td class="endpoint">/api/v1/instances/:id/reconnect</td><td>Forca reconexao controlada da sessao.</td></tr>
+            <tr><td class="method">POST</td><td class="endpoint">/api/v1/instances/:id/logout</td><td>Desconecta e limpa identidade local da sessao.</td></tr>
+            <tr><td class="method">POST</td><td class="endpoint">/api/v1/instances/:id/api-key/regenerate</td><td>Rotaciona a API key da instancia.</td></tr>
+          </tbody>
+        </table>
+        <h3>Resposta de criacao</h3>
+        <pre><code>{
+  "success": true,
+  "data": {
+    "id": 17,
+    "api_key": "woo_xxx",
+    "webhook_secret": "whsec_xxx",
+    "webhook": {
+      "webhooks_url": "https://api.seudominio.com/api/v1/instances/17/webhooks",
+      "webhook_events_url": "https://api.seudominio.com/api/v1/instances/17/webhook-events",
+      "webhook_logs_url": "https://api.seudominio.com/api/v1/instances/17/webhook-logs",
+      "webhook_test_url": "https://api.seudominio.com/api/v1/instances/17/webhook/test",
+      "signing_header": "X-WooAPI-Signature",
+      "secret": "whsec_xxx"
+    }
+  }
+}</code></pre>
+      </section>
+
+      <section class="section" id="mensagens">
+        <h2>Mensagens</h2>
+        <p>Os endpoints de mensagem usam a API key da instancia. O destinatario pode ser enviado como <code>number</code>, <code>phone</code> ou <code>jid</code>. Numeros devem incluir DDI e DDD, sem simbolos.</p>
+        <table>
+          <thead><tr><th>Metodo</th><th>Endpoint</th><th>Disponivel</th></tr></thead>
+          <tbody>
+            <tr><td class="method">POST</td><td class="endpoint">/api/v1/instances/:id/send-text</td><td>Texto simples.</td></tr>
+            <tr><td class="method">POST</td><td class="endpoint">/api/v1/instances/:id/send-media</td><td>Imagem, video, audio ou documento por URL/base64.</td></tr>
+            <tr><td class="method">POST</td><td class="endpoint">/api/v1/instances/:id/send-location</td><td>Localizacao com latitude, longitude, nome e endereco.</td></tr>
+            <tr><td class="method">POST</td><td class="endpoint">/api/v1/instances/:id/send-contact</td><td>Contato/vCard.</td></tr>
+            <tr><td class="method">POST</td><td class="endpoint">/api/v1/instances/:id/send-reply</td><td>Responder citando uma mensagem.</td></tr>
+            <tr><td class="method">POST</td><td class="endpoint">/api/v1/instances/:id/messages/react</td><td>Reacao a mensagem.</td></tr>
+            <tr><td class="method">POST</td><td class="endpoint">/api/v1/instances/:id/messages/read</td><td>Marcar como lida.</td></tr>
+            <tr><td class="method">POST</td><td class="endpoint">/api/v1/instances/:id/messages/edit</td><td>Editar mensagem enviada quando suportado pela sessao.</td></tr>
+            <tr><td class="method">POST</td><td class="endpoint">/api/v1/instances/:id/messages/delete</td><td>Apagar mensagem enviada quando suportado pela sessao.</td></tr>
+            <tr><td class="method">POST</td><td class="endpoint">/api/v1/instances/:id/messages/download</td><td>Download de midia recebida recente.</td></tr>
+            <tr><td class="method">POST</td><td class="endpoint">/api/v1/instances/:id/presence</td><td>Disponivel, digitando, gravando audio ou pausado.</td></tr>
+          </tbody>
+        </table>
+        <h3>Enviar midia</h3>
+        <pre><code>curl -X POST http://localhost:3002/api/v1/instances/17/send-media \
+  -H "x-api-key: woo_sua_api_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "number": "5548999999999",
+    "url": "https://exemplo.com/catalogo.pdf",
+    "caption": "Catalogo atualizado",
+    "mime_type": "application/pdf",
+    "file_name": "catalogo.pdf"
+  }'</code></pre>
+        <h3>Enviar localizacao</h3>
+        <pre><code>curl -X POST http://localhost:3002/api/v1/instances/17/send-location \
+  -H "x-api-key: woo_sua_api_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "number": "5548999999999",
+    "latitude": -27.5949,
+    "longitude": -48.5482,
+    "name": "WooAPI",
+    "address": "Florianopolis - SC"
+  }'</code></pre>
+      </section>
+
+      <section class="section" id="webhooks">
+        <h2>Webhooks</h2>
+        <p>Webhooks entregam eventos da instancia para sistemas externos. Cada webhook tem URL, secret HMAC, eventos filtrados, retentativas e logs de entrega.</p>
+        <div class="ok">
+          <strong>Assinatura:</strong> a WooAPI envia <code>X-WooAPI-Signature</code> no formato <code>sha256=&lt;hmac_sha256_raw_body_hex&gt;</code>. Use o <code>webhook_secret</code> da instancia ou do webhook criado.
+        </div>
+        <table>
+          <thead><tr><th>Metodo</th><th>Endpoint</th><th>Descricao</th></tr></thead>
+          <tbody>
+            <tr><td class="method">GET</td><td class="endpoint">/api/v1/instances/:id/webhooks</td><td>Lista webhooks configurados.</td></tr>
+            <tr><td class="method">POST</td><td class="endpoint">/api/v1/instances/:id/webhooks</td><td>Cria webhook com URL de destino.</td></tr>
+            <tr><td class="method">PATCH</td><td class="endpoint">/api/v1/instances/:id/webhooks/:webhookId</td><td>Atualiza URL, eventos, status, secret e tentativas.</td></tr>
+            <tr><td class="method">DELETE</td><td class="endpoint">/api/v1/instances/:id/webhooks/:webhookId</td><td>Remove webhook.</td></tr>
+            <tr><td class="method">POST</td><td class="endpoint">/api/v1/instances/:id/webhooks/:webhookId/test</td><td>Dispara evento de teste para o webhook escolhido.</td></tr>
+            <tr><td class="method">GET</td><td class="endpoint">/api/v1/instances/:id/webhook-events</td><td>Lista eventos registrados.</td></tr>
+            <tr><td class="method">GET</td><td class="endpoint">/api/v1/instances/:id/webhook-logs</td><td>Lista tentativas HTTP reais de entrega.</td></tr>
+            <tr><td class="method">POST</td><td class="endpoint">/api/v1/webhook-logs/:logId/retry</td><td>Reenvia evento associado a uma falha.</td></tr>
+          </tbody>
+        </table>
+        <h3>Criar webhook</h3>
+        <pre><code>curl -X POST http://localhost:3002/api/v1/instances/17/webhooks \
+  -H "x-api-key: woo_sua_api_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "n8n Atendimento",
+    "url": "https://seu-n8n.com/webhook/wooapi",
+    "events": ["message.received", "message.sent", "instance.connected", "instance.disconnected"],
+    "retry_enabled": true,
+    "max_attempts": 5
+  }'</code></pre>
+        <h3>Eventos principais</h3>
+        <ul>
+          <li><code>message.received</code>: mensagem recebida.</li>
+          <li><code>message.sent</code>: mensagem enviada pela API/painel.</li>
+          <li><code>message.read</code>, <code>message.edited</code>, <code>message.deleted</code>, <code>message.reaction</code>: eventos de mensagem.</li>
+          <li><code>instance.connected</code>, <code>instance.disconnected</code>, <code>instance.qr</code>, <code>instance.qr_expired</code>: eventos de conexao.</li>
+          <li><code>webhook.sent</code>, <code>webhook.failed</code>, <code>webhook.retrying</code>: eventos operacionais.</li>
+        </ul>
+      </section>
+
+      <section class="section" id="n8n">
+        <h2>Integracao Com n8n</h2>
+        <p>Para conectar no n8n, o integrador precisa apenas da URL da API, ID da instancia e API key. Para receber eventos, crie um node Webhook no n8n e cadastre a URL dele na WooAPI.</p>
+        <div class="grid two">
+          <div class="card">
+            <h3>Enviar pelo n8n</h3>
+            <ol>
+              <li>Adicione um node <strong>HTTP Request</strong>.</li>
+              <li>Metodo: <code>POST</code>.</li>
+              <li>URL: <code>{{baseUrl}}/api/v1/instances/{{instanceId}}/send-text</code>.</li>
+              <li>Header: <code>x-api-key = woo_sua_api_key</code>.</li>
+              <li>Body JSON com <code>number</code> e <code>text</code>.</li>
+            </ol>
+          </div>
+          <div class="card">
+            <h3>Receber no n8n</h3>
+            <ol>
+              <li>Crie um node <strong>Webhook</strong> no n8n.</li>
+              <li>Copie a Production URL.</li>
+              <li>Cadastre em <code>/api/v1/instances/:id/webhooks</code>.</li>
+              <li>Use o payload recebido para responder, criar lead, abrir ticket ou acionar IA.</li>
+            </ol>
+          </div>
+        </div>
+        <h3>Node HTTP Request - enviar texto</h3>
+        <pre><code>{
+  "method": "POST",
+  "url": "https://api.seudominio.com/api/v1/instances/17/send-text",
+  "headers": {
+    "x-api-key": "woo_sua_api_key",
+    "Content-Type": "application/json"
+  },
+  "body": {
+    "number": "5548999999999",
+    "text": "Ola, {{$json.nome}}! Seu atendimento foi iniciado."
+  }
+}</code></pre>
+        <h3>Fluxo recomendado no n8n</h3>
+        <ol>
+          <li><strong>Webhook Trigger</strong>: recebe <code>message.received</code> da WooAPI.</li>
+          <li><strong>IF/Switch</strong>: separa mensagem de texto, midia, grupo ou contato.</li>
+          <li><strong>CRM/Planilha/Banco</strong>: registra lead e historico.</li>
+          <li><strong>IA ou regras</strong>: gera resposta.</li>
+          <li><strong>HTTP Request</strong>: envia resposta pela WooAPI usando a mesma API key.</li>
+        </ol>
+      </section>
+
+      <section class="section" id="postman">
+        <h2>Postman</h2>
+        <p>A collection WooAPI ja inclui variaveis de ambiente e requests para health, instancias, status, envio, webhooks, contatos, campanhas, logs e administracao.</p>
+        <div class="actions">
+          <a class="btn primary" href="/postman/wooapi.postman_collection.json">Baixar collection</a>
+          <a class="btn" href="/openapi.json">Baixar OpenAPI</a>
+        </div>
+        <h3>Variaveis da collection</h3>
+        <table>
+          <thead><tr><th>Variavel</th><th>Exemplo</th><th>Descricao</th></tr></thead>
+          <tbody>
+            <tr><td><code>baseUrl</code></td><td><code>https://api.seudominio.com</code></td><td>URL publica da API.</td></tr>
+            <tr><td><code>jwt</code></td><td><code>eyJ...</code></td><td>Token de conta para painel/admin.</td></tr>
+            <tr><td><code>instanceId</code></td><td><code>17</code></td><td>ID numerico da instancia.</td></tr>
+            <tr><td><code>instanceToken</code></td><td><code>woo_xxx</code></td><td>API key da instancia.</td></tr>
+            <tr><td><code>number</code></td><td><code>5548999999999</code></td><td>Numero alvo com DDI e DDD.</td></tr>
+            <tr><td><code>webhookUrl</code></td><td><code>https://n8n.../webhook/wooapi</code></td><td>URL de destino para eventos.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="section" id="contatos">
+        <h2>Contatos e Chats</h2>
+        <table>
+          <thead><tr><th>Metodo</th><th>Endpoint</th><th>Descricao</th></tr></thead>
+          <tbody>
+            <tr><td class="method">GET</td><td class="endpoint">/api/v1/instances/:id/contacts</td><td>Lista/sincroniza contatos conhecidos.</td></tr>
+            <tr><td class="method">POST</td><td class="endpoint">/api/v1/instances/:id/contacts/check</td><td>Verifica se um numero possui WhatsApp.</td></tr>
+            <tr><td class="method">POST</td><td class="endpoint">/api/v1/instances/:id/contacts/info</td><td>Busca foto, nome, status e dados business.</td></tr>
+            <tr><td class="method">POST</td><td class="endpoint">/api/v1/instances/:id/contacts/block</td><td>Bloqueia ou desbloqueia contato.</td></tr>
+            <tr><td class="method">POST</td><td class="endpoint">/api/v1/instances/:id/chats/state</td><td>Arquiva, silencia ou fixa conversa quando suportado.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="section" id="perfil-grupos">
+        <h2>Perfil e Grupos</h2>
+        <div class="grid two">
+          <div class="card">
+            <h3>Perfil</h3>
+            <ul>
+              <li><code>GET /api/v1/instances/:id/profile</code>: perfil, privacidade e business.</li>
+              <li><code>POST /api/v1/instances/:id/profile/name</code>: altera nome.</li>
+              <li><code>POST /api/v1/instances/:id/profile/status</code>: altera recado/status.</li>
+              <li><code>POST /api/v1/instances/:id/profile/photo</code>: altera foto.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Grupos</h3>
+            <ul>
+              <li><code>GET /api/v1/instances/:id/groups</code>: lista grupos.</li>
+              <li><code>POST /api/v1/instances/:id/groups</code>: cria grupo.</li>
+              <li><code>POST /api/v1/instances/:id/groups/participants</code>: adiciona, remove, promove ou rebaixa participantes.</li>
+              <li><code>POST /api/v1/instances/:id/groups/settings</code>: nome, descricao, imagem e modo administrador.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="campanhas">
+        <h2>Campanhas, Fila e CRM</h2>
+        <p>A WooAPI possui recursos locais de campanhas, recipients, delays, pausar/cancelar, relatorios, leads, tags, notas, respostas rapidas e campos personalizados.</p>
+        <table>
+          <thead><tr><th>Metodo</th><th>Endpoint</th><th>Descricao</th></tr></thead>
+          <tbody>
+            <tr><td class="method">POST</td><td class="endpoint">/api/campaigns</td><td>Cria campanha com template, instancia, delays e agendamento.</td></tr>
+            <tr><td class="method">POST</td><td class="endpoint">/api/campaigns/:id/recipients</td><td>Adiciona destinatarios.</td></tr>
+            <tr><td class="method">POST</td><td class="endpoint">/api/campaigns/:id/start</td><td>Inicia/enfileira campanha.</td></tr>
+            <tr><td class="method">POST</td><td class="endpoint">/api/campaigns/:id/pause</td><td>Pausa campanha.</td></tr>
+            <tr><td class="method">POST</td><td class="endpoint">/api/campaigns/:id/cancel</td><td>Cancela campanha.</td></tr>
+            <tr><td class="method">GET</td><td class="endpoint">/api/campaigns/:id/report</td><td>Relatorio de enviados, entregues, lidos e falhas.</td></tr>
+            <tr><td class="method">GET/POST</td><td class="endpoint">/api/quick-replies</td><td>Respostas rapidas locais.</td></tr>
+            <tr><td class="method">POST</td><td class="endpoint">/api/leads/:id/notes</td><td>Notas internas no lead.</td></tr>
+            <tr><td class="method">POST</td><td class="endpoint">/api/leads/:id/tags</td><td>Tags no lead.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="section" id="admin">
+        <h2>Admin, Observabilidade e Producao</h2>
+        <p>O painel administrativo inclui metricas de instancias, filas, webhooks, alertas, logs, clientes, planos, backups e readiness de producao.</p>
+        <ul>
+          <li><code>GET /health</code>: banco, bridge, Redis/fila, readiness e bloqueios.</li>
+          <li><code>GET /api/admin/overview</code>: visao geral de clientes, usuarios, instancias e mensagens.</li>
+          <li><code>GET /api/admin/wooapi-monitor</code>: observabilidade por instancia, filas, webhooks e alertas.</li>
+          <li><code>GET /api/admin/logs?type=webhooks</code>: logs administrativos.</li>
+          <li><code>GET /api/admin/backups</code>, <code>POST /api/admin/backups</code>: backup operacional.</li>
+          <li><code>GET /docs/production-readiness.md</code>: checklist de producao.</li>
+        </ul>
+      </section>
+
+      <section class="section" id="limitacoes">
+        <h2>Limitacoes Comerciais Importantes</h2>
+        <div class="notice">
+          <p><strong>A WooAPI e uma plataforma de automacao para WhatsApp baseada em sessoes conectadas pelo cliente.</strong> Existe risco de desconexao, bloqueio, limitacao de conta, mudancas de comportamento do provedor e incompatibilidades futuras.</p>
+          <p>Para clientes que exigem botoes nativos oficiais, garantias formais de entrega/renderizacao ou SLA contratado diretamente com o provedor, avalie um projeto separado com canais oficiais.</p>
+        </div>
+        <ul>
+          <li>Botoes interativos nativos oficiais nao fazem parte do produto vendavel nesta versao. Use texto, links, midia, webhooks e fluxos externos.</li>
+          <li>Use delays, limites por plano e boas praticas anti-spam.</li>
+          <li>Evite disparos massivos sem consentimento.</li>
+          <li>Configure Redis/BullMQ em producao para escala real.</li>
+          <li>Configure Stripe para billing automatizado e readiness comercial completo.</li>
+          <li>Mantenha backup de banco, sessoes e midias.</li>
+        </ul>
+      </section>
+
+      <p class="footer">WooAPI - Documentacao publica gerada para integradores. Em producao, substitua <code>localhost:3002</code> pelo dominio configurado em <code>APP_URL</code>.</p>
+    </main>
+  </div>
+</body>
+</html>

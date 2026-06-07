@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WooAPI - API WhatsApp para vender, integrar e automatizar</title>
+  <meta name="description" content="Pagina de vendas da WooAPI: API WhatsApp multi-instancia com REST, webhooks, websocket, n8n, Typebot, Chatwoot e conta teste de 2 horas.">
+  <style>
+    :root {
+      --bg: #f7f8fa;
+      --paper: #ffffff;
+      --ink: #111827;
+      --muted: #5f6b7a;
+      --line: #dfe5ec;
+      --brand: #16a34a;
+      --brand-dark: #15803d;
+      --navy: #111827;
+      --amber: #f59e0b;
+      --red: #dc2626;
+      --soft: #ecfdf3;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.5;
+    }
+    a { color: inherit; text-decoration: none; }
+    .wrap { width: min(1180px, calc(100% - 32px)); margin: 0 auto; }
+    header.site {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: rgba(247, 248, 250, 0.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--line);
+    }
+    .nav {
+      min-height: 72px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; font-weight: 900; }
+    .mark {
+      width: 40px;
+      height: 40px;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      background: var(--brand);
+      color: white;
+    }
+    .links { display: flex; align-items: center; gap: 18px; color: #425166; font-size: 14px; font-weight: 800; }
+    .btn {
+      display: inline-flex;
+      min-height: 44px;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: white;
+      color: var(--ink);
+      padding: 10px 16px;
+      font-weight: 900;
+      cursor: pointer;
+    }
+    .btn.primary { background: var(--brand); border-color: var(--brand); color: white; }
+    .btn.dark { background: var(--navy); border-color: var(--navy); color: white; }
+    .hero {
+      min-height: calc(100vh - 72px);
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(340px, 480px);
+      align-items: center;
+      gap: 48px;
+      padding: 48px 0 36px;
+    }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid #b8e7c8;
+      background: var(--soft);
+      color: var(--brand-dark);
+      border-radius: 999px;
+      padding: 7px 11px;
+      font-size: 12px;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+    h1 {
+      margin: 18px 0 16px;
+      max-width: 760px;
+      font-size: clamp(42px, 6vw, 76px);
+      line-height: 1.02;
+      letter-spacing: 0;
+    }
+    .lead { max-width: 710px; color: #425166; font-size: 19px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 26px; }
+    .proof { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 28px; }
+    .proof div, .panel, .plan, .feature, .notice, form {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--paper);
+    }
+    .proof div { padding: 14px; }
+    .proof strong { display: block; font-size: 24px; }
+    .proof span { color: var(--muted); font-size: 12px; font-weight: 800; }
+    .panel { overflow: hidden; box-shadow: 0 24px 60px rgba(17, 24, 39, 0.12); }
+    .panel-top { display: flex; gap: 7px; padding: 14px 16px; background: #111827; }
+    .dot { width: 10px; height: 10px; border-radius: 999px; background: #ef4444; }
+    .dot:nth-child(2) { background: #f59e0b; }
+    .dot:nth-child(3) { background: #22c55e; }
+    .panel-body { padding: 20px; display: grid; gap: 14px; }
+    .endpoint { background: #f1f5f9; border-radius: 8px; padding: 14px; font-family: Consolas, ui-monospace, monospace; font-size: 13px; color: #27364a; overflow: auto; }
+    .wa {
+      display: grid;
+      gap: 10px;
+      padding: 16px;
+      border-radius: 8px;
+      background: #e9f5ef;
+      border: 1px solid #ccebd8;
+    }
+    .bubble { max-width: 86%; padding: 10px 12px; border-radius: 8px; background: white; font-size: 14px; }
+    .bubble.me { justify-self: end; background: #d9fdd3; }
+    .status-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .status-row div { border: 1px solid var(--line); border-radius: 8px; padding: 10px; background: white; }
+    section { padding: 48px 0; }
+    h2 { margin: 0 0 14px; font-size: clamp(30px, 4vw, 46px); line-height: 1.1; letter-spacing: 0; }
+    .section-head { max-width: 760px; margin-bottom: 24px; }
+    .section-head p { color: var(--muted); font-size: 17px; }
+    .features { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+    .feature { padding: 20px; }
+    .icon {
+      width: 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      background: #eef2f7;
+      color: var(--brand-dark);
+      font-weight: 900;
+      margin-bottom: 14px;
+    }
+    .feature h3, .plan h3 { margin: 0 0 8px; font-size: 20px; }
+    .feature p, .plan p, .notice p { margin: 0; color: var(--muted); }
+    .plans { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; align-items: stretch; }
+    .plan { padding: 22px; display: flex; flex-direction: column; gap: 16px; }
+    .plan.highlight { border-color: #86efac; box-shadow: 0 18px 40px rgba(22, 163, 74, 0.12); }
+    .price { font-size: 36px; font-weight: 950; letter-spacing: 0; }
+    .price small { font-size: 13px; color: var(--muted); font-weight: 800; }
+    ul { margin: 0; padding-left: 18px; color: #425166; }
+    li { margin: 7px 0; }
+    .trial-band {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
+      gap: 24px;
+      align-items: start;
+    }
+    .notice { padding: 22px; border-color: #fed7aa; background: #fff7ed; }
+    .notice strong { color: #9a3412; }
+    form { padding: 22px; display: grid; gap: 12px; }
+    label { display: grid; gap: 6px; font-size: 12px; font-weight: 900; color: #475467; text-transform: uppercase; }
+    input {
+      width: 100%;
+      min-height: 44px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font: inherit;
+      color: var(--ink);
+      background: #fbfcfd;
+    }
+    .form-note { color: var(--red); font-size: 13px; font-weight: 900; }
+    .result { min-height: 22px; color: var(--muted); font-size: 14px; }
+    footer { border-top: 1px solid var(--line); padding: 30px 0; color: var(--muted); font-size: 13px; }
+    @media (max-width: 980px) {
+      .hero, .trial-band { grid-template-columns: 1fr; min-height: auto; }
+      .plans, .features, .proof { grid-template-columns: 1fr; }
+      .links { display: none; }
+      .status-row { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header class="site">
+    <div class="wrap nav">
+      <a class="brand" href="#top"><span class="mark">W</span><span>WooAPI</span></a>
+      <nav class="links">
+        <a href="#recursos">Recursos</a>
+        <a href="#planos">Planos</a>
+        <a href="#teste">Teste gratis</a>
+        <a href="/docs/wooapi">Docs</a>
+      </nav>
+      <a class="btn primary" href="#teste">Testar por 2 horas</a>
+    </div>
+  </header>
+
+  <main id="top">
+    <div class="wrap hero">
+      <section>
+        <span class="eyebrow">API WhatsApp multi-instancia</span>
+        <h1>WooAPI</h1>
+        <p class="lead">Venda, integre e automatize atendimentos pelo WhatsApp com API REST, webhooks por instancia, eventos em tempo real e painel SaaS para clientes ou revendedores.</p>
+        <div class="actions">
+          <a class="btn primary" href="#teste">Criar conta teste</a>
+          <a class="btn" href="#planos">Ver planos</a>
+          <a class="btn dark" href="/docs/wooapi">Documentacao tecnica</a>
+        </div>
+        <div class="proof">
+          <div><strong>REST</strong><span>Envio, status, midia e grupos</span></div>
+          <div><strong>Webhooks</strong><span>Eventos assinados por instancia</span></div>
+          <div><strong>SaaS</strong><span>Planos, cotas e clientes</span></div>
+        </div>
+      </section>
+
+      <aside class="panel" aria-label="Previa da WooAPI">
+        <div class="panel-top"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+        <div class="panel-body">
+          <div class="endpoint">POST /api/v1/instances/17/send-text<br>x-api-key: woo_sua_chave<br><br>{ "number": "5548999999999", "text": "Pedido confirmado." }</div>
+          <div class="wa">
+            <div class="bubble">Webhook recebido: message.received</div>
+            <div class="bubble me">Resposta enviada pela WooAPI</div>
+          </div>
+          <div class="status-row">
+            <div><strong>QR</strong><br><span>Conectar</span></div>
+            <div><strong>API key</strong><br><span>Copiar</span></div>
+            <div><strong>Logs</strong><br><span>Auditar</span></div>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <section id="recursos">
+      <div class="wrap">
+        <div class="section-head">
+          <h2>Pronta para operacao comercial</h2>
+          <p>A WooAPI une API, painel, monitoramento e recursos de revenda para transformar instancias WhatsApp em produto vendavel.</p>
+        </div>
+        <div class="features">
+          <article class="feature"><div class="icon">01</div><h3>API REST por instancia</h3><p>Cada instancia tem API key propria para enviar texto, midia, contatos, localizacao e consultar status.</p></article>
+          <article class="feature"><div class="icon">02</div><h3>Webhooks e eventos</h3><p>Receba mensagens, status de entrega, QR Code, conexao e falhas com assinatura HMAC.</p></article>
+          <article class="feature"><div class="icon">03</div><h3>Integra n8n, Typebot e Chatwoot</h3><p>Conecte automacoes, bots e atendimento humano sem criar integrações do zero.</p></article>
+          <article class="feature"><div class="icon">04</div><h3>Painel SaaS</h3><p>Gerencie contas, planos, cotas, clientes, logs, instancias e suporte pelo painel administrativo.</p></article>
+          <article class="feature"><div class="icon">05</div><h3>Revenda e subcontas</h3><p>Distribua cotas para clientes finais e acompanhe o uso por conta.</p></article>
+          <article class="feature"><div class="icon">06</div><h3>Observabilidade</h3><p>Monitore filas, webhooks, mensagens, conexoes e eventos importantes em tempo real.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section id="planos">
+      <div class="wrap">
+        <div class="section-head">
+          <h2>Planos WooAPI</h2>
+          <p>Comece com uma conta teste curta e avance para um plano mensal quando estiver pronto para operar.</p>
+        </div>
+        <div class="plans">
+          <article class="plan highlight">
+            <h3>Teste Gratis</h3>
+            <div class="price">R$ 0 <small>/ 2 horas</small></div>
+            <p>Para validar API, painel e conexao.</p>
+            <ul>
+              <li>1 instancia</li>
+              <li>1 usuario</li>
+              <li>200 mensagens de limite comercial</li>
+              <li>Exclusao automatica ao final</li>
+            </ul>
+            <a class="btn primary" href="#teste">Criar teste</a>
+          </article>
+          <article class="plan">
+            <h3>Starter</h3>
+            <div class="price">R$ 97 <small>/ mes</small></div>
+            <p>Para pequenos projetos de automacao.</p>
+            <ul>
+              <li>2 instancias</li>
+              <li>2 usuarios</li>
+              <li>API, Webhook e WebSocket</li>
+              <li>5.000 mensagens/mês</li>
+            </ul>
+          </article>
+          <article class="plan">
+            <h3>Pro</h3>
+            <div class="price">R$ 297 <small>/ mes</small></div>
+            <p>Para operacao com mais volume.</p>
+            <ul>
+              <li>20 instancias</li>
+              <li>10 usuarios</li>
+              <li>n8n, Typebot e Chatwoot</li>
+              <li>50.000 mensagens/mês</li>
+            </ul>
+          </article>
+          <article class="plan">
+            <h3>Enterprise</h3>
+            <div class="price">R$ 697 <small>/ mes</small></div>
+            <p>Para revenda e escala.</p>
+            <ul>
+              <li>50 instancias</li>
+              <li>25 usuarios</li>
+              <li>Subcontas e revenda</li>
+              <li>Suporte prioritario</li>
+            </ul>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="teste">
+      <div class="wrap trial-band">
+        <div class="notice">
+          <h2>Conta teste de 2 horas</h2>
+          <p><strong>A conta teste e temporaria.</strong> Depois de 2 horas, ela e excluida automaticamente junto com instancias, mensagens, webhooks, logs e dados criados durante o teste.</p>
+          <p style="margin-top:12px">Use a conta teste para validar a experiencia, copiar a API key, gerar QR Code e testar uma integracao simples. Para producao, escolha um plano mensal.</p>
+        </div>
+        <form id="trialForm">
+          <label>Empresa<input name="companyName" autocomplete="organization" required placeholder="Sua Empresa"></label>
+          <label>Seu nome<input name="name" autocomplete="name" required placeholder="Joao Silva"></label>
+          <label>E-mail<input name="email" type="email" autocomplete="email" required placeholder="voce@empresa.com"></label>
+          <label>Senha<input name="password" type="password" autocomplete="new-password" required minlength="6" placeholder="Minimo 6 caracteres"></label>
+          <p class="form-note">Ao criar o teste, voce confirma que esta conta sera excluida automaticamente apos 2 horas.</p>
+          <button class="btn primary" type="submit">Liberar conta teste</button>
+          <div class="result" id="trialResult"></div>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap">WooAPI. Plataforma de automacao baseada em sessoes conectadas pelo cliente. Use boas praticas, consentimento e limites comerciais.</div>
+  </footer>
+
+  <script>
+    const form = document.getElementById("trialForm");
+    const result = document.getElementById("trialResult");
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      result.textContent = "Criando conta teste...";
+      const payload = Object.fromEntries(new FormData(form).entries());
+      try {
+        const response = await fetch("/api/auth/trial", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+          result.textContent = data.error || "Nao foi possivel criar a conta teste.";
+          return;
+        }
+        localStorage.setItem("wooapi_auth", JSON.stringify({
+          accountId: data.accountId,
+          user: data.user,
+          account: data.account,
+          token: data.token
+        }));
+        result.textContent = "Conta teste liberada. Redirecionando para o painel...";
+        window.location.href = "/#dashboard";
+      } catch (error) {
+        result.textContent = "Erro de conexao ao criar a conta teste.";
+      }
+    });
+  </script>
+</body>
+</html>

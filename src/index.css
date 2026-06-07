@@ -1,10 +1,58 @@
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --color-sidebar-bg: #0d0f18;
+  --color-sidebar-item: rgba(255, 255, 255, 0.68);
+  --color-sidebar-item-active: #ffffff;
+  --color-sidebar-item-active-bg: rgba(34, 197, 94, 0.18);
+  --color-main-bg: #f8f9fa;
+  --color-card-bg: #ffffff;
+  --color-border: #e5e7eb;
+  --color-primary: #22c55e;
+  --color-primary-foreground: #ffffff;
+  --color-slate-50: #f8f9fa;
+  --color-slate-100: #f3f4f6;
+  --color-slate-200: #e5e7eb;
+  --color-slate-300: #d1d5db;
+  --color-slate-400: #9ca3af;
+  --color-slate-500: #6b7280;
+  --color-slate-600: #4b5563;
+  --color-slate-700: #374151;
+  --color-slate-800: #1f2937;
+  --color-slate-900: #0f111a;
+  --color-blue-50: #f3f4f6;
+  --color-blue-100: #e5e7eb;
+  --color-blue-500: #22c55e;
+  --color-blue-600: #16a34a;
+  --color-blue-700: #15803d;
+  --color-purple-50: #f3f4f6;
+  --color-purple-100: #e5e7eb;
+  --color-purple-500: #22c55e;
+  --color-purple-600: #16a34a;
+  --color-emerald-50: #ecfdf3;
+  --color-emerald-100: #d9fbe7;
+  --color-emerald-200: #b6f2ce;
+  --color-emerald-300: #86e3aa;
+  --color-emerald-400: #4ade80;
+  --color-emerald-500: #22c55e;
+  --color-emerald-600: #16a34a;
+  --color-emerald-700: #15803d;
+  --color-amber-50: #fff7ed;
+  --color-amber-100: #ffedd5;
+  --color-amber-400: #fb923c;
+  --color-amber-500: #f97316;
+  --color-amber-600: #ea580c;
+  --color-amber-700: #c2410c;
+  --color-red-50: #fef2f2;
+  --color-red-500: #ef4444;
+  --color-red-600: #dc2626;
+  --color-rose-500: #ef4444;
 }
 
 body {
   @apply antialiased;
+  background: #f8f9fa;
+  color: #0f111a;
 }

@@ -1,0 +1,292 @@
+services:
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-change-this-redis-password}
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-change-this-redis-password}
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  wooapi:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: wooapi
+    restart: unless-stopped
+    depends_on:
+      - redis
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      APP_ENV: production
+      REQUIRE_PRODUCTION_READY: "true"
+      PORT: 3000
+      APP_URL: ${APP_URL:-http://localhost:3000}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+      SESSION_TOKEN_TTL_HOURS: ${SESSION_TOKEN_TTL_HOURS:-12}
+      MAX_UPLOAD_SIZE_MB: ${MAX_UPLOAD_SIZE_MB:-25}
+      DATA_DIR: /data
+      UPLOAD_DIR: /data/uploads
+      SQLITE_FILENAME: database.db
+      BRIDGE_URL: http://127.0.0.1:3001
+      NODE_URL: http://127.0.0.1:3000
+      BRIDGE_DB_PATH: /data/wooapi_bridge.db
+      BRIDGE_MEDIA_CACHE_DIR: /data/media-cache
+      BRIDGE_TOKEN: ${BRIDGE_TOKEN:-change-this-bridge-token}
+      JWT_SECRET: ${JWT_SECRET:-change-this-jwt-secret}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-change-this-webhook-secret}
+      WOOAPI_ADMIN_TOKEN: ${WOOAPI_ADMIN_TOKEN:-change-this-wooapi-admin-token}
+      DATABASE_URL: ${DATABASE_URL:-}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-change-this-redis-password}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-change-this-redis-password}@redis:6379
+      QUEUE_DRIVER: bullmq
+      DEFAULT_GLOBAL_RATE_LIMIT_PER_MINUTE: ${DEFAULT_GLOBAL_RATE_LIMIT_PER_MINUTE:-120}
+      DEFAULT_API_RATE_LIMIT_PER_MINUTE: ${DEFAULT_API_RATE_LIMIT_PER_MINUTE:-60}
+      DEFAULT_ACCOUNT_RATE_LIMIT_PER_MINUTE: ${DEFAULT_ACCOUNT_RATE_LIMIT_PER_MINUTE:-300}
+      DEFAULT_INSTANCE_RATE_LIMIT_PER_MINUTE: ${DEFAULT_INSTANCE_RATE_LIMIT_PER_MINUTE:-30}
+      DEFAULT_MESSAGE_RATE_LIMIT_PER_MINUTE: ${DEFAULT_MESSAGE_RATE_LIMIT_PER_MINUTE:-20}
+      DEFAULT_CRITICAL_RATE_LIMIT_PER_MINUTE: ${DEFAULT_CRITICAL_RATE_LIMIT_PER_MINUTE:-30}
+      TRAFFIC_GLOBAL_PER_MINUTE: ${TRAFFIC_GLOBAL_PER_MINUTE:-600}
+      TRAFFIC_TENANT_PER_MINUTE: ${TRAFFIC_TENANT_PER_MINUTE:-120}
+      TRAFFIC_INSTANCE_PER_MINUTE: ${TRAFFIC_INSTANCE_PER_MINUTE:-20}
+      TRAFFIC_PHONE_PER_MINUTE: ${TRAFFIC_PHONE_PER_MINUTE:-12}
+      TRAFFIC_NODE_PER_MINUTE: ${TRAFFIC_NODE_PER_MINUTE:-300}
+      CORE_NODE_ID: ${CORE_NODE_ID:-core-node-local}
+      CORE_NODE_PROFILE: ${CORE_NODE_PROFILE:-low-risk}
+      CORE_NODE_IP_POOL: ${CORE_NODE_IP_POOL:-local}
+      CORE_NODE_MAX_INSTANCES: ${CORE_NODE_MAX_INSTANCES:-150}
+      QR_EXPIRES_MINUTES: ${QR_EXPIRES_MINUTES:-10}
+      ORPHAN_SESSION_GRACE_MINUTES: ${ORPHAN_SESSION_GRACE_MINUTES:-30}
+      BACKUP_DIR: /data/backups
+      ALLOW_RESTORE: ${ALLOW_RESTORE:-false}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-noreply@wooapi.com.br}
+      SUPPORT_INSTANCE_ID: ${SUPPORT_INSTANCE_ID:-}
+      SUPPORT_INSTANCE_JID: ${SUPPORT_INSTANCE_JID:-}
+    volumes:
+      - wooapi_data:/data
+
+  wooapi-webhook-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: wooapi-webhook-worker
+    restart: unless-stopped
+    depends_on:
+      - redis
+    command: ["npm", "run", "worker:webhooks"]
+    environment:
+      NODE_ENV: production
+      DATA_DIR: /data
+      SQLITE_FILENAME: database.db
+      DATABASE_URL: ${DATABASE_URL:-}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-change-this-webhook-secret}
+      TRAFFIC_GLOBAL_PER_MINUTE: ${TRAFFIC_GLOBAL_PER_MINUTE:-600}
+      TRAFFIC_TENANT_PER_MINUTE: ${TRAFFIC_TENANT_PER_MINUTE:-120}
+      TRAFFIC_INSTANCE_PER_MINUTE: ${TRAFFIC_INSTANCE_PER_MINUTE:-20}
+      TRAFFIC_PHONE_PER_MINUTE: ${TRAFFIC_PHONE_PER_MINUTE:-12}
+      TRAFFIC_NODE_PER_MINUTE: ${TRAFFIC_NODE_PER_MINUTE:-300}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-change-this-redis-password}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-change-this-redis-password}@redis:6379
+    volumes:
+      - wooapi_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "ps | grep -v grep | grep -q 'src/workers/webhook.worker.ts'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  wooapi-message-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: wooapi-message-worker
+    restart: unless-stopped
+    depends_on:
+      - redis
+    command: ["npm", "run", "worker:messages"]
+    environment:
+      NODE_ENV: production
+      DATA_DIR: /data
+      SQLITE_FILENAME: database.db
+      DATABASE_URL: ${DATABASE_URL:-}
+      BRIDGE_URL: http://wooapi:3001
+      BRIDGE_TOKEN: ${BRIDGE_TOKEN:-change-this-bridge-token}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-change-this-webhook-secret}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-change-this-redis-password}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-change-this-redis-password}@redis:6379
+    volumes:
+      - wooapi_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "ps | grep -v grep | grep -q 'src/workers/message.worker.ts'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  wooapi-monitor-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: wooapi-monitor-worker
+    restart: unless-stopped
+    depends_on:
+      - redis
+    command: ["npm", "run", "worker:monitor"]
+    environment:
+      NODE_ENV: production
+      DATA_DIR: /data
+      SQLITE_FILENAME: database.db
+      DATABASE_URL: ${DATABASE_URL:-}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-change-this-webhook-secret}
+      BRIDGE_URL: http://wooapi:3001
+      BRIDGE_TOKEN: ${BRIDGE_TOKEN:-change-this-bridge-token}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-change-this-redis-password}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-change-this-redis-password}@redis:6379
+    volumes:
+      - wooapi_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "ps | grep -v grep | grep -q 'src/workers/monitor.worker.ts'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  wooapi-orchestrator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: wooapi-orchestrator
+    restart: unless-stopped
+    depends_on:
+      - redis
+    command: ["npm", "run", "worker:orchestrator"]
+    environment:
+      NODE_ENV: production
+      DATA_DIR: /data
+      SQLITE_FILENAME: database.db
+      DATABASE_URL: ${DATABASE_URL:-}
+      CORE_NODE_ID: ${CORE_NODE_ID:-core-node-local}
+      CORE_NODE_PROFILE: ${CORE_NODE_PROFILE:-low-risk}
+      CORE_NODE_IP_POOL: ${CORE_NODE_IP_POOL:-local}
+      CORE_NODE_MAX_INSTANCES: ${CORE_NODE_MAX_INSTANCES:-150}
+      ORCHESTRATOR_INTERVAL_MS: ${ORCHESTRATOR_INTERVAL_MS:-30000}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-change-this-redis-password}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-change-this-redis-password}@redis:6379
+    volumes:
+      - wooapi_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "ps | grep -v grep | grep -q 'src/workers/orchestrator.worker.ts'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  wooapi-alert-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: wooapi-alert-worker
+    restart: unless-stopped
+    depends_on:
+      - redis
+    command: ["npm", "run", "worker:alerts"]
+    environment:
+      NODE_ENV: production
+      DATA_DIR: /data
+      SQLITE_FILENAME: database.db
+      DATABASE_URL: ${DATABASE_URL:-}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-change-this-redis-password}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-change-this-redis-password}@redis:6379
+    volumes:
+      - wooapi_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "ps | grep -v grep | grep -q 'src/workers/alert.worker.ts'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  wooapi-cleanup-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: wooapi-cleanup-worker
+    restart: unless-stopped
+    depends_on:
+      - redis
+    command: ["npm", "run", "worker:cleanup"]
+    environment:
+      NODE_ENV: production
+      DATA_DIR: /data
+      SQLITE_FILENAME: database.db
+      DATABASE_URL: ${DATABASE_URL:-}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-change-this-redis-password}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-change-this-redis-password}@redis:6379
+    volumes:
+      - wooapi_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "ps | grep -v grep | grep -q 'src/workers/cleanup.worker.ts'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  wooapi-chatwoot-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: wooapi-chatwoot-worker
+    restart: unless-stopped
+    depends_on:
+      - redis
+    command: ["npm", "run", "worker:chatwoot"]
+    environment:
+      NODE_ENV: production
+      DATA_DIR: /data
+      SQLITE_FILENAME: database.db
+      DATABASE_URL: ${DATABASE_URL:-}
+      BRIDGE_URL: http://wooapi:3001
+      BRIDGE_TOKEN: ${BRIDGE_TOKEN:-change-this-bridge-token}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-change-this-redis-password}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-change-this-redis-password}@redis:6379
+    volumes:
+      - wooapi_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "ps | grep -v grep | grep -q 'src/workers/chatwoot.worker.ts'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  wooapi_data:
+  redis_data:

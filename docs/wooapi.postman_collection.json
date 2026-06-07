@@ -1,0 +1,357 @@
+{
+  "info": {
+    "name": "WooAPI - Public API",
+    "description": "Collection oficial da WooAPI para instancias WhatsApp, envio de mensagens, webhooks, n8n, campanhas, CRM e administracao.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3002", "type": "string" },
+    { "key": "jwt", "value": "cole-o-jwt-da-conta", "type": "string" },
+    { "key": "instanceId", "value": "17", "type": "string" },
+    { "key": "instanceToken", "value": "woo_sua_api_key", "type": "string" },
+    { "key": "adminToken", "value": "cole-o-token-admin", "type": "string" },
+    { "key": "number", "value": "5548999999999", "type": "string" },
+    { "key": "messageId", "value": "cole-o-id-da-mensagem", "type": "string" },
+    { "key": "webhookId", "value": "1", "type": "string" },
+    { "key": "webhookUrl", "value": "https://seu-n8n.com/webhook/wooapi", "type": "string" },
+    { "key": "mediaUrl", "value": "https://example.com/arquivo.pdf", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "00 - Public Docs",
+      "item": [
+        {
+          "name": "Health",
+          "request": { "method": "GET", "url": "{{baseUrl}}/health" }
+        },
+        {
+          "name": "WooAPI Documentation Page",
+          "request": { "method": "GET", "url": "{{baseUrl}}/docs/wooapi" }
+        },
+        {
+          "name": "OpenAPI JSON",
+          "request": { "method": "GET", "url": "{{baseUrl}}/openapi.json" }
+        },
+        {
+          "name": "Terms",
+          "request": { "method": "GET", "url": "{{baseUrl}}/terms" }
+        }
+      ]
+    },
+    {
+      "name": "01 - Account",
+      "item": [
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"fluowai@gmail.com\",\n  \"password\": \"sua-senha\"\n}"
+            },
+            "url": "{{baseUrl}}/api/auth/login"
+          }
+        },
+        {
+          "name": "List Instances",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{jwt}}" }],
+            "url": "{{baseUrl}}/api/v1/instances"
+          }
+        },
+        {
+          "name": "Create Instance With Webhook",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{jwt}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Atendimento WooAPI\",\n  \"webhook_url\": \"{{webhookUrl}}\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/instances"
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 - Instance",
+      "item": [
+        {
+          "name": "Status",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-api-key", "value": "{{instanceToken}}" }],
+            "url": "{{baseUrl}}/api/v1/instances/{{instanceId}}/status"
+          }
+        },
+        {
+          "name": "Get QR",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-api-key", "value": "{{instanceToken}}" }],
+            "url": "{{baseUrl}}/api/v1/instances/{{instanceId}}/qr"
+          }
+        },
+        {
+          "name": "Connect",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "x-api-key", "value": "{{instanceToken}}" }],
+            "url": "{{baseUrl}}/api/v1/instances/{{instanceId}}/connect"
+          }
+        },
+        {
+          "name": "Reconnect",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "x-api-key", "value": "{{instanceToken}}" }],
+            "url": "{{baseUrl}}/api/v1/instances/{{instanceId}}/reconnect"
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "x-api-key", "value": "{{instanceToken}}" }],
+            "url": "{{baseUrl}}/api/v1/instances/{{instanceId}}/logout"
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 - Messages",
+      "item": [
+        {
+          "name": "Send Text",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "x-api-key", "value": "{{instanceToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"number\": \"{{number}}\",\n  \"text\": \"Teste WooAPI via Postman\"\n}" },
+            "url": "{{baseUrl}}/api/v1/instances/{{instanceId}}/send-text"
+          }
+        },
+        {
+          "name": "Send Media",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "x-api-key", "value": "{{instanceToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"number\": \"{{number}}\",\n  \"url\": \"{{mediaUrl}}\",\n  \"caption\": \"Arquivo enviado pela WooAPI\",\n  \"mime_type\": \"application/pdf\",\n  \"file_name\": \"arquivo.pdf\"\n}" },
+            "url": "{{baseUrl}}/api/v1/instances/{{instanceId}}/send-media"
+          }
+        },
+        {
+          "name": "Send Location",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "x-api-key", "value": "{{instanceToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"number\": \"{{number}}\",\n  \"latitude\": -27.5949,\n  \"longitude\": -48.5482,\n  \"name\": \"WooAPI\",\n  \"address\": \"Florianopolis - SC\"\n}" },
+            "url": "{{baseUrl}}/api/v1/instances/{{instanceId}}/send-location"
+          }
+        },
+        {
+          "name": "Send Contact",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "x-api-key", "value": "{{instanceToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"number\": \"{{number}}\",\n  \"name\": \"Atendimento WooAPI\",\n  \"phone\": \"5548933806836\"\n}" },
+            "url": "{{baseUrl}}/api/v1/instances/{{instanceId}}/send-contact"
+          }
+        },
+        {
+          "name": "Send Reply",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "x-api-key", "value": "{{instanceToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"number\": \"{{number}}\",\n  \"message_id\": \"{{messageId}}\",\n  \"text\": \"Resposta citando a mensagem.\"\n}" },
+            "url": "{{baseUrl}}/api/v1/instances/{{instanceId}}/send-reply"
+          }
+        },
+        {
+          "name": "Presence Typing",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "x-api-key", "value": "{{instanceToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"number\": \"{{number}}\",\n  \"presence\": \"composing\"\n}" },
+            "url": "{{baseUrl}}/api/v1/instances/{{instanceId}}/presence"
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 - Webhooks",
+      "item": [
+        {
+          "name": "List Webhooks",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-api-key", "value": "{{instanceToken}}" }],
+            "url": "{{baseUrl}}/api/v1/instances/{{instanceId}}/webhooks"
+          }
+        },
+        {
+          "name": "Create Webhook",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "x-api-key", "value": "{{instanceToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"n8n Atendimento\",\n  \"url\": \"{{webhookUrl}}\",\n  \"events\": [\"message.received\", \"message.sent\", \"instance.connected\", \"instance.disconnected\"],\n  \"retry_enabled\": true,\n  \"max_attempts\": 5\n}" },
+            "url": "{{baseUrl}}/api/v1/instances/{{instanceId}}/webhooks"
+          }
+        },
+        {
+          "name": "Test Webhook",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "x-api-key", "value": "{{instanceToken}}" }],
+            "url": "{{baseUrl}}/api/v1/instances/{{instanceId}}/webhooks/{{webhookId}}/test"
+          }
+        },
+        {
+          "name": "Webhook Events",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-api-key", "value": "{{instanceToken}}" }],
+            "url": "{{baseUrl}}/api/v1/instances/{{instanceId}}/webhook-events"
+          }
+        },
+        {
+          "name": "Webhook Logs",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-api-key", "value": "{{instanceToken}}" }],
+            "url": "{{baseUrl}}/api/v1/instances/{{instanceId}}/webhook-logs"
+          }
+        }
+      ]
+    },
+    {
+      "name": "05 - Contacts And Chats",
+      "item": [
+        {
+          "name": "Contacts",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-api-key", "value": "{{instanceToken}}" }],
+            "url": "{{baseUrl}}/api/v1/instances/{{instanceId}}/contacts"
+          }
+        },
+        {
+          "name": "Check Number",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "x-api-key", "value": "{{instanceToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"number\": \"{{number}}\"\n}" },
+            "url": "{{baseUrl}}/api/v1/instances/{{instanceId}}/contacts/check"
+          }
+        },
+        {
+          "name": "Contact Info",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "x-api-key", "value": "{{instanceToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"number\": \"{{number}}\"\n}" },
+            "url": "{{baseUrl}}/api/v1/instances/{{instanceId}}/contacts/info"
+          }
+        }
+      ]
+    },
+    {
+      "name": "06 - n8n Quick Setup",
+      "item": [
+        {
+          "name": "n8n Send Text HTTP Request",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "x-api-key", "value": "{{instanceToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"number\": \"{{number}}\",\n  \"text\": \"Ola, {{$json.nome}}! Atendimento iniciado pela WooAPI.\"\n}" },
+            "url": "{{baseUrl}}/api/v1/instances/{{instanceId}}/send-text",
+            "description": "Use esta mesma configuracao em um node HTTP Request do n8n. O n8n precisa apenas de baseUrl, instanceId e instanceToken."
+          }
+        },
+        {
+          "name": "Register n8n Webhook URL",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "x-api-key", "value": "{{instanceToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"n8n Production Webhook\",\n  \"url\": \"{{webhookUrl}}\",\n  \"events\": [\"message.received\", \"message.sent\"],\n  \"retry_enabled\": true,\n  \"max_attempts\": 5\n}" },
+            "url": "{{baseUrl}}/api/v1/instances/{{instanceId}}/webhooks"
+          }
+        }
+      ]
+    },
+    {
+      "name": "07 - Admin",
+      "item": [
+        {
+          "name": "Admin Overview",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{jwt}}" }],
+            "url": "{{baseUrl}}/api/admin/overview"
+          }
+        },
+        {
+          "name": "WooAPI Monitor",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{jwt}}" }],
+            "url": "{{baseUrl}}/api/admin/wooapi-monitor"
+          }
+        },
+        {
+          "name": "List Accounts",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{jwt}}" }],
+            "url": "{{baseUrl}}/api/admin/accounts"
+          }
+        },
+        {
+          "name": "Create Backup",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{jwt}}" }],
+            "url": "{{baseUrl}}/api/admin/backups"
+          }
+        }
+      ]
+    }
+  ]
+}
