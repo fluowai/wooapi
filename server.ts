@@ -79,7 +79,7 @@ const QUEUE_DRIVER = process.env.QUEUE_DRIVER || (process.env.NODE_ENV === "prod
 const REQUIRE_PRODUCTION_READY = process.env.REQUIRE_PRODUCTION_READY === "true";
 const QR_EXPIRES_MINUTES = Number(process.env.QR_EXPIRES_MINUTES || 10);
 const ORPHAN_SESSION_GRACE_MINUTES = Number(process.env.ORPHAN_SESSION_GRACE_MINUTES || 30);
-const TRIAL_TEST_HOURS = Number(process.env.TRIAL_TEST_HOURS || 2);
+const TRIAL_TEST_HOURS = Number(process.env.TRIAL_TEST_HOURS || 48);
 const BACKUP_DIR = path.resolve(process.env.BACKUP_DIR || path.join(dataDir, "backups"));
 const ALLOW_RESTORE = process.env.ALLOW_RESTORE === "true";
 
@@ -1134,7 +1134,7 @@ async function migrate() {
     await run("UPDATE plans SET name = ? WHERE id = ?", ["Teste Gratis", starter.id]);
   }
 
-  await ensurePlan("Teste Gratis", 0, 0, 0, 0, 1, 1, 200, 0, ["Teste de 2 horas", "1 instancia WhatsApp", "API", "Webhook", "Conta excluida automaticamente"]);
+  await ensurePlan("Teste Gratis", 0, 0, 0, 0, 1, 1, 200, 0, ["Teste de 2 dias", "1 instancia WhatsApp", "API", "Webhook", "Conta excluida automaticamente"]);
   await ensurePlan("WooAPI Starter", 97, 0, 0, 0, 2, 2, 5000, 0, ["Instancias WhatsApp", "API", "Webhook", "WebSocket"]);
   await ensurePlan("WooAPI Reseller", 197, 0, 0, 0, 10, 5, 20000, 10, ["Revenda", "Subcontas", "Cotas por cliente", "Webhooks"]);
   await ensurePlan("WooAPI Pro", 297, 0, 0, 0, 20, 10, 50000, 0, ["Logs avancados", "Chatwoot", "Typebot", "n8n"]);
@@ -1182,7 +1182,7 @@ async function ensureDefaultCommercialPlans() {
     await run("UPDATE plans SET name = ? WHERE id = ?", ["Teste Gratis", starter.id]);
   }
 
-  const testPlanId = await ensurePlan("Teste Gratis", 0, 1, 1, 200, 0, ["Teste de 2 horas", "1 instancia WhatsApp", "API", "Webhook", "Conta excluida automaticamente"]);
+  const testPlanId = await ensurePlan("Teste Gratis", 0, 1, 1, 200, 0, ["Teste de 2 dias", "1 instancia WhatsApp", "API", "Webhook", "Conta excluida automaticamente"]);
   await ensurePlan("WooAPI Starter", 97, 2, 2, 5000, 0, ["Instancias WhatsApp", "API", "Webhook", "WebSocket"]);
   await ensurePlan("WooAPI Reseller", 197, 10, 5, 20000, 10, ["Revenda", "Subcontas", "Cotas por cliente", "Webhooks"]);
   await ensurePlan("WooAPI Pro", 297, 20, 10, 50000, 0, ["Logs avancados", "Chatwoot", "Typebot", "n8n"]);
@@ -1205,9 +1205,14 @@ async function deleteExpiredTrialAccounts() {
     if (!accountId) continue;
 
     await audit(accountId, null, "trial.account.auto_deleted", {
-      reason: "Teste de 2 horas expirado",
+      reason: "Teste de 2 dias expirado",
       deleted_at: new Date().toISOString()
     });
+
+    await run(
+      "UPDATE instances SET status = ?, connection_status = ?, deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE account_id = ? AND deleted_at IS NULL",
+      ["disconnected", "disconnected", accountId]
+    ).catch(() => null);
 
     const accountScopedTables = [
       "campaign_recipients",
@@ -1601,7 +1606,11 @@ async function startServer() {
   }
 
   function accountCanOperate(account: any) {
-    return account && !inactiveAccountStatuses.has(String(account.status || "active"));
+    if (!account || inactiveAccountStatuses.has(String(account.status || "active"))) return false;
+    if (String(account.status || "") === "trial" && account.trial_ends_at && new Date(account.trial_ends_at).getTime() <= Date.now()) {
+      return false;
+    }
+    return true;
   }
 
   async function getAccountFeatureFlags(accountId: number) {
@@ -2879,7 +2888,7 @@ async function startServer() {
   }
 
   async function getAccountQuotaUsage(accountId: number) {
-    const account = await get("SELECT id, account_type, instance_quota, plan_id FROM accounts WHERE id = ? AND deleted_at IS NULL", [accountId]);
+    const account = await get("SELECT id, account_type, status, trial_ends_at, instance_quota, plan_id FROM accounts WHERE id = ? AND deleted_at IS NULL", [accountId]);
     const plan = await getAccountPlan(accountId);
     const instanceQuota = Number(account?.instance_quota ?? plan?.max_instances ?? 0);
     const ownInstancesUsed = Number((await get("SELECT COUNT(*) AS total FROM instances WHERE account_id = ? AND deleted_at IS NULL", [accountId]))?.total || 0);
@@ -2932,6 +2941,10 @@ async function startServer() {
 
   async function ensureInstanceCapacity(accountId: number, requestedAdditional = 1) {
     const usage = await getAccountQuotaUsage(accountId);
+    const account = await get("SELECT * FROM accounts WHERE id = ? AND deleted_at IS NULL", [accountId]);
+    if (!accountCanOperate(account)) {
+      return { allowed: false, limit: 0, used: 0, usage, error: "Conta expirada, pausada ou bloqueada" };
+    }
     const limit = Number(usage.instanceQuota || 0);
     if (!limit) return { allowed: true, limit, usage };
     const used = Number(usage.ownInstancesUsed || 0) + Number(usage.allocatedToChildren || 0);
@@ -2968,7 +2981,7 @@ async function startServer() {
     if (!companyName || !name || !email || !password) return res.status(400).json({ error: "Dados obrigatórios ausentes" });
     if (await get("SELECT id FROM users WHERE email = ?", [email])) return res.status(409).json({ error: "E-mail já cadastrado" });
 
-    const defaultPlan = await get("SELECT id, max_instances, max_client_accounts FROM plans WHERE is_active = 1 ORDER BY price ASC, max_instances ASC LIMIT 1");
+    const defaultPlan = await get("SELECT id, max_instances, max_client_accounts FROM plans WHERE is_active = 1 AND name <> ? AND price > 0 ORDER BY price ASC, max_instances ASC LIMIT 1", ["Teste Gratis"]);
     const accountType = "client";
     const account = await run("INSERT INTO accounts (name, plan_id, account_type, instance_quota, max_client_accounts, owner_name, owner_email) VALUES (?, ?, ?, ?, ?, ?, ?)", [companyName, defaultPlan?.id || null, accountType, defaultPlan?.max_instances || 1, defaultPlan?.max_client_accounts || 0, name, email]);
     const role = "admin";
@@ -3031,7 +3044,7 @@ async function startServer() {
         hours: TRIAL_TEST_HOURS,
         ends_at: trialEndsAt,
         auto_delete: true,
-        message: "A conta teste dura 2 horas e sera excluida automaticamente com todos os dados criados no teste."
+        message: "A conta teste dura 2 dias e sera excluida automaticamente com todos os dados criados no teste."
       }
     });
   });
@@ -3814,8 +3827,15 @@ async function startServer() {
   });
 
   app.patch("/api/admin/accounts/:id/plan", async (req, res) => {
-    await run("UPDATE accounts SET plan_id = ? WHERE id = ?", [req.body.plan_id, req.params.id]);
-    res.json({ success: true });
+    const planId = req.body.plan_id || null;
+    const plan = planId ? await get("SELECT * FROM plans WHERE id = ? AND is_active = 1", [planId]) : null;
+    if (planId && !plan?.id) return res.status(400).json({ error: "Plano inativo ou inexistente" });
+    await run(
+      "UPDATE accounts SET plan_id = ?, instance_quota = ?, max_client_accounts = ?, status = CASE WHEN status = 'trial' THEN 'active' ELSE status END, billing_status = CASE WHEN billing_status = 'trial' THEN 'active' ELSE billing_status END, trial_ends_at = CASE WHEN status = 'trial' THEN NULL ELSE trial_ends_at END, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+      [planId, plan ? Number(plan.instance_quota ?? plan.max_instances ?? 1) : null, plan ? Number(plan.max_client_accounts || 0) : 0, req.params.id]
+    );
+    await audit(Number(req.params.id), Number((req as AccountRequest).user?.userId), "admin.account.plan_changed", { plan_id: planId, instance_quota: plan ? Number(plan.instance_quota ?? plan.max_instances ?? 1) : null });
+    res.json({ success: true, account: await get("SELECT * FROM accounts WHERE id = ?", [req.params.id]) });
   });
 
   app.patch("/api/admin/accounts/:id", async (req: AccountRequest, res) => {
@@ -3824,17 +3844,21 @@ async function startServer() {
     if (!current) return res.status(404).json({ error: "Conta não encontrada" });
     if (account_type !== undefined && !accountTypes.has(String(account_type))) return res.status(400).json({ error: "Tipo de conta inválido" });
     if (status !== undefined && !accountStatuses.has(String(status))) return res.status(400).json({ error: "Status de conta inválido" });
-    if (plan_id !== undefined && plan_id && !await get("SELECT id FROM plans WHERE id = ? AND is_active = 1", [plan_id])) return res.status(400).json({ error: "Plano inativo ou inexistente" });
+    const selectedPlan = plan_id !== undefined && plan_id ? await get("SELECT * FROM plans WHERE id = ? AND is_active = 1", [plan_id]) : null;
+    if (plan_id !== undefined && plan_id && !selectedPlan?.id) return res.status(400).json({ error: "Plano inativo ou inexistente" });
+    const planChanged = plan_id !== undefined && Number(plan_id || 0) !== Number(current.plan_id || 0);
     await run(
-      "UPDATE accounts SET name = ?, status = ?, plan_id = ?, notes = ?, account_type = ?, instance_quota = ?, max_client_accounts = ?, paused_at = CASE WHEN ? = 'paused' THEN CURRENT_TIMESTAMP ELSE paused_at END, blocked_at = CASE WHEN ? = 'blocked' THEN CURRENT_TIMESTAMP ELSE blocked_at END, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+      "UPDATE accounts SET name = ?, status = ?, plan_id = ?, notes = ?, account_type = ?, instance_quota = ?, max_client_accounts = ?, billing_status = CASE WHEN ? = 1 AND billing_status = 'trial' THEN 'active' ELSE billing_status END, trial_ends_at = CASE WHEN ? = 1 AND status = 'trial' THEN NULL ELSE trial_ends_at END, paused_at = CASE WHEN ? = 'paused' THEN CURRENT_TIMESTAMP ELSE paused_at END, blocked_at = CASE WHEN ? = 'blocked' THEN CURRENT_TIMESTAMP ELSE blocked_at END, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
       [
         name ?? current.name,
-        status ?? current.status,
+        planChanged && current.status === "trial" && status === undefined ? "active" : status ?? current.status,
         plan_id ?? current.plan_id,
         notes ?? current.notes,
         account_type ?? current.account_type,
-        instance_quota ?? current.instance_quota,
-        max_client_accounts ?? current.max_client_accounts,
+        instance_quota ?? (planChanged && selectedPlan ? Number(selectedPlan.instance_quota ?? selectedPlan.max_instances ?? 1) : current.instance_quota),
+        max_client_accounts ?? (planChanged && selectedPlan ? Number(selectedPlan.max_client_accounts || 0) : current.max_client_accounts),
+        planChanged ? 1 : 0,
+        planChanged ? 1 : 0,
         status ?? current.status,
         status ?? current.status,
         req.params.id

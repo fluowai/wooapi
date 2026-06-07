@@ -3204,7 +3204,7 @@ export default function App() {
       <main className={cn("flex-1 bg-main-bg", activeTab === 'messages' ? "overflow-hidden p-0" : "overflow-y-auto p-6")}>
         {isTrialAccount && activeTab !== 'messages' && (
           <div className="mb-5 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            <strong>Conta teste:</strong> esta conta dura 2 horas e sera excluida automaticamente com instancias, mensagens, webhooks e logs criados no teste.
+            <strong>Conta teste:</strong> esta conta dura 2 dias e sera excluida automaticamente com instancias, mensagens, webhooks e logs criados no teste.
             {trialEndsAt && (
               <span className="ml-1 font-bold">
                 Tempo restante aproximado: {trialHoursLeft}h {trialMinutesLeft}min.
