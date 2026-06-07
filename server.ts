@@ -87,6 +87,14 @@ const uploadDir = path.resolve(process.env.UPLOAD_DIR || path.join(dataDir, "upl
 fs.mkdirSync(uploadDir, { recursive: true });
 fs.mkdirSync(BACKUP_DIR, { recursive: true });
 
+function publicMediaUrl(url?: string | null) {
+  const value = String(url || "").trim();
+  if (!value) return "";
+  if (/^https?:\/\//i.test(value) || value.startsWith("data:")) return value;
+  if (value.startsWith("/")) return `${APP_URL.replace(/\/+$/, "")}${value}`;
+  return value;
+}
+
 function productionReadiness() {
   const weakValues = new Set(["", "dev-jwt-secret-change-me", "dev-webhook-secret-change-me", "dev-bridge-token"]);
   const checks = [
@@ -394,7 +402,7 @@ function verifyToken(token?: string) {
 }
 
 function normalizePhone(input = "") {
-  return String(input).replace(/\D/g, "");
+  return String(input).split("@")[0].split(":")[0].replace(/\D/g, "");
 }
 
 function normalizeWhatsAppPhone(input = "") {
@@ -438,6 +446,10 @@ function jidToConversationFields(jid = "") {
   }
   const phone = normalizePhone(jid.split("@")[0]);
   return { type: "contact", remote_jid: jid, group_jid: null, contact_phone: phone, title: phone || jid };
+}
+
+function isGroupJid(jid?: string | null) {
+  return String(jid || "").trim().endsWith("@g.us");
 }
 
 function cleanDisplayName(name?: string) {
@@ -556,8 +568,9 @@ function getContentFromPayload(payload: any) {
   if (text) return { contentType: "text", contentText: text };
   const media = message.imageMessage || message.videoMessage || message.audioMessage || message.documentMessage;
   const payloadMediaUrl = payload?.MediaUrl || payload?.mediaUrl || payload?.media_url || "";
-  const contentType = info.MediaType || info.mediaType ||
+  const rawContentType = info.MediaType || info.mediaType ||
     (message.imageMessage ? "image" : message.videoMessage ? "video" : message.audioMessage ? "audio" : message.documentMessage ? "document" : "text");
+  const contentType = normalizeIncomingMediaType(rawContentType);
   if (!media && !payloadMediaUrl) return { contentType: "text", contentText: "" };
   const mediaUrl =
     payloadMediaUrl ||
@@ -573,6 +586,18 @@ function getContentFromPayload(payload: any) {
     return { contentType: "image", contentText: `data:image/jpeg;base64,${jpegThumbnail}` };
   }
   return { contentType, contentText: `[${contentType}]` };
+}
+
+function normalizeIncomingMediaType(type?: string | null) {
+  const normalized = String(type || "").trim().toLowerCase();
+  if (["image", "video", "audio", "document"].includes(normalized)) return normalized;
+  if (["ptt", "voice", "audio_message"].includes(normalized)) return "audio";
+  if (["sticker"].includes(normalized)) return "image";
+  if (normalized.includes("image")) return "image";
+  if (normalized.includes("video")) return "video";
+  if (normalized.includes("audio") || normalized.includes("ptt")) return "audio";
+  if (normalized.includes("document") || normalized.includes("file")) return "document";
+  return normalized || "text";
 }
 
 function shouldSkipMessagePayload(payload: any) {
@@ -632,6 +657,29 @@ async function ensureConversation(accountId: number, instanceId: number, jid: st
     [accountId, instanceId, fields.type, fields.remote_jid, fields.contact_phone, fields.group_jid, cleanDisplayName(title) || fields.title]
   );
   return await get("SELECT * FROM conversations WHERE id = ?", [info.lastInsertRowid]);
+}
+
+function selectConversationJid(source: ReturnType<typeof getMessageSource>, isFromMe: boolean) {
+  if (isGroupJid(source.chatJid)) return source.chatJid;
+  return (isFromMe ? source.recipientAltJid : source.senderAltJid) || source.chatJid || source.senderJid;
+}
+
+function selectAuthorJid(source: ReturnType<typeof getMessageSource>, isFromMe: boolean) {
+  if (isFromMe) return source.senderAltJid || source.senderJid || "";
+  return source.senderAltJid || source.senderJid || "";
+}
+
+function conversationTitleFromMessage(jid: string, payload: any, pushName?: string) {
+  if (!isGroupJid(jid)) return cleanDisplayName(pushName);
+  return cleanDisplayName(
+    payload?.GroupName ||
+    payload?.groupName ||
+    payload?.Info?.GroupName ||
+    payload?.info?.groupName ||
+    payload?.Info?.ChatName ||
+    payload?.info?.chatName ||
+    ""
+  );
 }
 
 type WebhookTarget = {
@@ -1741,18 +1789,51 @@ async function startServer() {
     }
   }
 
-  async function getContactProfilePicture(accountId: number, instanceId: number, jid: string) {
-    if (!jid || isIgnoredChatJid(jid) || jid.endsWith("@g.us")) return "";
+  async function getChatProfile(accountId: number, instanceId: number, jid: string) {
+    if (!jid || isIgnoredChatJid(jid)) return { name: "", pictureUrl: "" };
     try {
       const data = await bridgeFetch(`/instances/${instanceId}/contacts/info`, {
         method: "POST",
         body: JSON.stringify({ account_id: accountId, jid })
       });
-      const picture = data?.result?.picture || data?.picture || {};
-      return String(picture.URL || picture.url || picture.ProfilePictureURL || picture.profilePictureUrl || "");
+      const result = data?.result || data || {};
+      const picture = result?.picture || data?.picture || {};
+      const name = cleanDisplayName(
+        result?.Name ||
+        result?.name ||
+        result?.PushName ||
+        result?.pushName ||
+        result?.Subject ||
+        result?.subject ||
+        result?.Topic ||
+        result?.topic ||
+        data?.name ||
+        data?.subject ||
+        ""
+      );
+      const pictureUrl = String(picture.URL || picture.url || picture.ProfilePictureURL || picture.profilePictureUrl || result?.pictureUrl || result?.profilePictureUrl || "");
+      return { name, pictureUrl };
     } catch {
-      return "";
+      return { name: "", pictureUrl: "" };
     }
+  }
+
+  async function refreshGroupConversationProfile(accountId: number, conversation: any) {
+    const groupJid = String(conversation?.group_jid || "");
+    if (!groupJid.endsWith("@g.us")) return conversation;
+    const needsProfile = !conversation.contact_profile_picture_url || !conversation.title || String(conversation.title) === groupJid;
+    if (!needsProfile) return conversation;
+    const profile = await getChatProfile(accountId, Number(conversation.instance_id), groupJid);
+    if (!profile.name && !profile.pictureUrl) return conversation;
+    await run(
+      "UPDATE conversations SET title = COALESCE(NULLIF(?, ''), title), contact_profile_picture_url = COALESCE(NULLIF(?, ''), contact_profile_picture_url), updated_at = CURRENT_TIMESTAMP WHERE id = ? AND account_id = ?",
+      [profile.name, profile.pictureUrl, conversation.id, accountId]
+    );
+    return {
+      ...conversation,
+      title: profile.name || conversation.title,
+      contact_profile_picture_url: profile.pictureUrl || conversation.contact_profile_picture_url
+    };
   }
 
   async function callAdvancedBridge(inst: any, endpoint: string, body: any = {}) {
@@ -1944,7 +2025,7 @@ async function startServer() {
   async function sendWhatsAppMedia(instanceId: number, accountId: number, jid: string, media: any) {
     return bridgeFetch(`/instances/${instanceId}/send-media`, {
       method: "POST",
-      body: JSON.stringify({ account_id: accountId, jid, ...media })
+      body: JSON.stringify({ account_id: accountId, jid, ...media, mediaUrl: publicMediaUrl(media?.mediaUrl || media?.media_url || media?.url) })
     });
   }
 
@@ -5303,7 +5384,7 @@ const session = await requireV1Account(req, res);
   });
 
   app.get("/api/conversations", async (req: AccountRequest, res) => {
-    res.json(await query(`
+    const conversations = await query(`
       SELECT *, last_message_preview AS last_message
       FROM conversations
       WHERE account_id = ?
@@ -5313,7 +5394,15 @@ const session = await requireV1Account(req, res);
         AND COALESCE(group_jid, '') NOT LIKE '%@broadcast'
         AND COALESCE(contact_phone, '') != 'status'
       ORDER BY last_message_at DESC
-    `, [req.accountId]));
+    `, [req.accountId]);
+    const enriched = await Promise.all(
+      conversations.map((conversation: any) =>
+        String(conversation.group_jid || "").endsWith("@g.us")
+          ? refreshGroupConversationProfile(Number(req.accountId), conversation)
+          : conversation
+      )
+    );
+    res.json(enriched);
   });
 
   app.get("/api/conversations/:id/messages", async (req: AccountRequest, res) => {
@@ -5778,7 +5867,8 @@ const session = await requireV1Account(req, res);
       if (!ext) return res.status(400).json({ error: "Tipo de arquivo nao permitido" });
       const finalName = `${file.filename}${ext}`;
       fs.renameSync(file.path, path.join(uploadDir, finalName));
-      res.json({ url: `/uploads/${finalName}` });
+      const url = `/uploads/${finalName}`;
+      res.json({ url, publicUrl: publicMediaUrl(url) });
     });
   });
 
@@ -5935,31 +6025,39 @@ const session = await requireV1Account(req, res);
       if (shouldSkipMessagePayload(payload)) return res.json({ success: true, skipped: true });
       const source = getMessageSource(payload);
       const isFromMe = Boolean(payload?.Info?.IsFromMe ?? payload?.info?.isFromMe);
-      const chatJid = (isFromMe ? source.recipientAltJid : source.senderAltJid) || source.chatJid || source.senderJid;
+      const chatJid = selectConversationJid(source, isFromMe);
+      const authorJid = selectAuthorJid(source, isFromMe);
       if (!chatJid || isIgnoredChatJid(chatJid) || isIgnoredChatJid(source.chatJid) || isIgnoredChatJid(source.senderJid)) {
         return res.json({ success: true, skipped: true, reason: "ignored_chat_jid" });
       }
-      const conversation = await ensureConversation(numericAccountId, numericInstanceId, chatJid, source.pushName);
+      let conversationTitle = conversationTitleFromMessage(chatJid, payload, source.pushName);
+      const conversation = await ensureConversation(numericAccountId, numericInstanceId, chatJid, conversationTitle);
       const { contentType, contentText: rawContentText } = getContentFromPayload(payload);
       let contentText = rawContentText;
       if (contentType !== "text") {
         const storedMediaUrl = await storeReceivedMedia(numericAccountId, numericInstanceId, source.id, contentType, chatJid);
         if (storedMediaUrl) contentText = storedMediaUrl;
       }
-      const contactProfilePictureUrl = !isFromMe
-        ? await getContactProfilePicture(numericAccountId, numericInstanceId, chatJid)
-        : "";
+      const shouldRefreshChatProfile = !isFromMe && (
+        !conversation.contact_profile_picture_url ||
+        (isGroupJid(chatJid) && (!conversationTitle || String(conversation.title || "") === chatJid))
+      );
+      const chatProfile = shouldRefreshChatProfile
+        ? await getChatProfile(numericAccountId, numericInstanceId, chatJid)
+        : { name: "", pictureUrl: "" };
+      if (isGroupJid(chatJid) && chatProfile.name) conversationTitle = chatProfile.name;
+      const contactProfilePictureUrl = chatProfile.pictureUrl;
       const direction = isFromMe ? "outbound" : "inbound";
       const duplicate = await get("SELECT id FROM messages WHERE account_id = ? AND message_id = ?", [numericAccountId, source.id]);
       if (!duplicate) {
         const info = await run(
           "INSERT INTO messages (account_id, instance_id, conversation_id, direction, chat_type, author_phone, author_push_name, content_type, content_text, message_id, delivery_status, from_me, sender, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-          [numericAccountId, numericInstanceId, conversation.id, direction, conversation.type, normalizePhone(source.senderJid), source.pushName, contentType, contentText, source.id, isFromMe ? "sent" : "received", isFromMe ? 1 : 0, isFromMe ? "human" : "lead", JSON.stringify(payload)]
+          [numericAccountId, numericInstanceId, conversation.id, direction, conversation.type, normalizePhone(authorJid), source.pushName, contentType, contentText, source.id, isFromMe ? "sent" : "received", isFromMe ? 1 : 0, isFromMe ? "human" : "lead", JSON.stringify(payload)]
         );
         await logMessage(numericAccountId, numericInstanceId, source.id, direction, isFromMe ? "sent" : "received", { conversationId: conversation.id, contentType });
         await run(
           "UPDATE conversations SET remote_jid = COALESCE(NULLIF(?, ''), remote_jid), title = COALESCE(NULLIF(?, ''), title), contact_profile_picture_url = COALESCE(NULLIF(?, ''), contact_profile_picture_url), last_message_preview = ?, unread_count = unread_count + ?, last_message_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-          [chatJid, cleanDisplayName(source.pushName), contactProfilePictureUrl, contentType === "text" ? contentText : mediaPreview(contentType, contentText), isFromMe ? 0 : 1, conversation.id]
+          [chatJid, conversation.type === "group" ? conversationTitle : cleanDisplayName(source.pushName), contactProfilePictureUrl, contentType === "text" ? contentText : mediaPreview(contentType, contentText), isFromMe ? 0 : 1, conversation.id]
         );
         const message = await get("SELECT * FROM messages WHERE id = ?", [info.lastInsertRowid]);
         const updatedConversation = await get("SELECT *, last_message_preview AS last_message FROM conversations WHERE id = ?", [conversation.id]);

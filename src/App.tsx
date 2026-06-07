@@ -2637,7 +2637,7 @@ export default function App() {
         const type = file.type.startsWith('image/') ? 'image' :
                      file.type.startsWith('video/') ? 'video' :
                      file.type.startsWith('audio/') ? 'audio' : 'document';
-        sendMediaMessage(data.url, type);
+        sendMediaMessage(data.publicUrl || data.url, type);
       }
     } catch (error) {
       console.error('Upload failed:', error);

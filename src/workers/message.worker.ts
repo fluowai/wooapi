@@ -12,6 +12,7 @@ dotenv.config();
 
 const BRIDGE_URL = process.env.BRIDGE_URL || "http://127.0.0.1:3001";
 const BRIDGE_TOKEN = process.env.BRIDGE_TOKEN || "dev-bridge-token";
+const APP_URL = process.env.APP_URL || "http://localhost:3000";
 const dataDir = path.resolve(process.env.DATA_DIR || ".");
 fs.mkdirSync(dataDir, { recursive: true });
 
@@ -49,6 +50,14 @@ function sanitizePublicError(error: any) {
 
 function safeId(prefix: string) {
   return `${prefix}_${crypto.randomBytes(12).toString("hex")}`;
+}
+
+function publicMediaUrl(url?: string | null) {
+  const value = String(url || "").trim();
+  if (!value) return "";
+  if (/^https?:\/\//i.test(value) || value.startsWith("data:")) return value;
+  if (value.startsWith("/")) return `${APP_URL.replace(/\/+$/, "")}${value}`;
+  return value;
 }
 
 async function logMessage(accountId: number, instanceId: number, messageId: string, direction: string, status: string, details: any = {}) {
@@ -198,7 +207,7 @@ async function sendMessage(job: Job<MessageSendJob>) {
         body: JSON.stringify({
           account_id: data.accountId,
           jid: data.jid,
-          mediaUrl: data.mediaUrl,
+          mediaUrl: publicMediaUrl(data.mediaUrl),
           caption: data.caption || "",
           mimeType: data.mimeType || "",
           fileName: data.fileName || "",

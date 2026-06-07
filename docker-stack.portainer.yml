@@ -5,7 +5,7 @@ x-wooapi-image: &wooapi_image ghcr.io/fluowai/wooapi:latest
 x-wooapi-env: &wooapi_env
   NODE_ENV: production
   APP_ENV: production
-  REQUIRE_PRODUCTION_READY: "true"
+  REQUIRE_PRODUCTION_READY: ${REQUIRE_PRODUCTION_READY:-false}
   PORT: 3000
   APP_URL: "https://painel.wooapi.com.br"
   CORS_ORIGIN: "https://painel.wooapi.com.br,https://wooapi.com.br,https://wooapi.consultio.com.br"
@@ -16,6 +16,7 @@ x-wooapi-env: &wooapi_env
   UPLOAD_DIR: /data/uploads
   SQLITE_FILENAME: database.db
   DB_TYPE: postgresql
+  # Para Supabase pooler, use sslmode=require&uselibpqcompat=true na DATABASE_URL.
   DATABASE_URL: "${DATABASE_URL:?set DATABASE_URL}"
   PGSSLMODE: require
   SUPABASE_URL: "${SUPABASE_URL:-}"
@@ -129,7 +130,9 @@ services:
 
   wooapi-webhook-worker:
     image: *wooapi_image
-    command: ["npm", "run", "worker:webhooks"]
+    command: ["sh", "-c", "sleep 30 && npm run worker:webhooks"]
+    healthcheck:
+      disable: true
     environment:
       <<: *wooapi_env
       BRIDGE_URL: http://wooapi:3001
@@ -146,7 +149,9 @@ services:
 
   wooapi-message-worker:
     image: *wooapi_image
-    command: ["npm", "run", "worker:messages"]
+    command: ["sh", "-c", "sleep 30 && npm run worker:messages"]
+    healthcheck:
+      disable: true
     environment:
       <<: *wooapi_env
       BRIDGE_URL: http://wooapi:3001
@@ -163,7 +168,9 @@ services:
 
   wooapi-monitor-worker:
     image: *wooapi_image
-    command: ["npm", "run", "worker:monitor"]
+    command: ["sh", "-c", "sleep 30 && npm run worker:monitor"]
+    healthcheck:
+      disable: true
     environment:
       <<: *wooapi_env
       BRIDGE_URL: http://wooapi:3001
@@ -180,7 +187,9 @@ services:
 
   wooapi-orchestrator:
     image: *wooapi_image
-    command: ["npm", "run", "worker:orchestrator"]
+    command: ["sh", "-c", "sleep 30 && npm run worker:orchestrator"]
+    healthcheck:
+      disable: true
     environment:
       <<: *wooapi_env
       BRIDGE_URL: http://wooapi:3001
@@ -197,7 +206,9 @@ services:
 
   wooapi-alert-worker:
     image: *wooapi_image
-    command: ["npm", "run", "worker:alerts"]
+    command: ["sh", "-c", "sleep 30 && npm run worker:alerts"]
+    healthcheck:
+      disable: true
     environment:
       <<: *wooapi_env
       BRIDGE_URL: http://wooapi:3001
@@ -214,7 +225,9 @@ services:
 
   wooapi-cleanup-worker:
     image: *wooapi_image
-    command: ["npm", "run", "worker:cleanup"]
+    command: ["sh", "-c", "sleep 30 && npm run worker:cleanup"]
+    healthcheck:
+      disable: true
     environment:
       <<: *wooapi_env
       BRIDGE_URL: http://wooapi:3001
@@ -231,7 +244,9 @@ services:
 
   wooapi-chatwoot-worker:
     image: *wooapi_image
-    command: ["npm", "run", "worker:chatwoot"]
+    command: ["sh", "-c", "sleep 30 && npm run worker:chatwoot"]
+    healthcheck:
+      disable: true
     environment:
       <<: *wooapi_env
       BRIDGE_URL: http://wooapi:3001
