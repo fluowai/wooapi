@@ -1814,6 +1814,8 @@ async function startServer() {
         body: JSON.stringify({ account_id: accountId, jid })
       });
       const result = data?.result || data || {};
+      const info = result?.info || data?.info || {};
+      const contact = result?.contact || data?.contact || {};
       const picture = result?.picture || data?.picture || {};
       const name = cleanDisplayName(
         result?.Name ||
@@ -1824,11 +1826,23 @@ async function startServer() {
         result?.subject ||
         result?.Topic ||
         result?.topic ||
+        info?.Name ||
+        info?.name ||
+        info?.PushName ||
+        info?.pushName ||
+        info?.VerifiedName ||
+        info?.verifiedName ||
+        contact?.FullName ||
+        contact?.fullName ||
+        contact?.FirstName ||
+        contact?.firstName ||
+        contact?.PushName ||
+        contact?.pushName ||
         data?.name ||
         data?.subject ||
         ""
       );
-      const pictureUrl = String(picture.URL || picture.url || picture.ProfilePictureURL || picture.profilePictureUrl || result?.pictureUrl || result?.profilePictureUrl || "");
+      const pictureUrl = extractPictureUrl(picture) || extractPictureUrl(result) || extractPictureUrl(data);
       return { name, pictureUrl };
     } catch {
       return { name: "", pictureUrl: "" };
@@ -1838,6 +1852,23 @@ async function startServer() {
   async function refreshGroupConversationProfile(accountId: number, conversation: any) {
     const groupJid = String(conversation?.group_jid || "");
     if (!groupJid.endsWith("@g.us")) return conversation;
+    const storedGroup = await get(
+      "SELECT name, picture_url FROM whatsapp_groups WHERE account_id = ? AND instance_id = ? AND group_jid = ?",
+      [accountId, Number(conversation.instance_id), groupJid]
+    );
+    const storedName = cleanDisplayName(storedGroup?.name);
+    const storedPictureUrl = String(storedGroup?.picture_url || "");
+    if (storedName || storedPictureUrl) {
+      await run(
+        "UPDATE conversations SET title = COALESCE(NULLIF(?, ''), title), contact_profile_picture_url = COALESCE(NULLIF(?, ''), contact_profile_picture_url), updated_at = CURRENT_TIMESTAMP WHERE id = ? AND account_id = ?",
+        [storedName, storedPictureUrl, conversation.id, accountId]
+      );
+      return {
+        ...conversation,
+        title: storedName || conversation.title,
+        contact_profile_picture_url: storedPictureUrl || conversation.contact_profile_picture_url
+      };
+    }
     const needsProfile = !conversation.contact_profile_picture_url || !conversation.title || String(conversation.title) === groupJid;
     if (!needsProfile) return conversation;
     const profile = await getChatProfile(accountId, Number(conversation.instance_id), groupJid);
@@ -1873,6 +1904,28 @@ async function startServer() {
     return "";
   }
 
+  function extractPictureUrl(value: any): string {
+    if (!value) return "";
+    if (typeof value === "string") return value;
+    return String(
+      value.URL ||
+      value.url ||
+      value.PictureURL ||
+      value.pictureURL ||
+      value.pictureUrl ||
+      value.picture_url ||
+      value.ProfilePictureURL ||
+      value.profilePictureURL ||
+      value.profilePictureUrl ||
+      value.profile_picture_url ||
+      value.ThumbnailURL ||
+      value.thumbnailURL ||
+      value.thumbnailUrl ||
+      value.preview ||
+      ""
+    );
+  }
+
   function normalizeGroupParticipant(participant: any) {
     const jid = jidString(participant?.JID || participant?.jid || participant?.ID || participant?.id || participant);
     return {
@@ -1888,6 +1941,7 @@ async function startServer() {
     const participants = Array.isArray(raw?.Participants || raw?.participants)
       ? (raw.Participants || raw.participants).map(normalizeGroupParticipant).filter((item: any) => item.jid)
       : [];
+    const picture = raw?.Picture || raw?.picture || raw?.ProfilePicture || raw?.profilePicture || raw?.Photo || raw?.photo || {};
     return {
       jid,
       name: cleanDisplayName(raw?.Name || raw?.name || raw?.Subject || raw?.subject || raw?.Topic || raw?.topic || ""),
@@ -1896,6 +1950,7 @@ async function startServer() {
       participantCount: Number(raw?.ParticipantCount || raw?.participantCount || participants.length || 0),
       announce: Number(Boolean(raw?.Announce || raw?.announce || raw?.IsAnnounce || raw?.isAnnounce)),
       locked: Number(Boolean(raw?.Locked || raw?.locked || raw?.IsLocked || raw?.isLocked)),
+      pictureUrl: extractPictureUrl(picture) || extractPictureUrl(raw),
       participants
     };
   }
@@ -1903,8 +1958,8 @@ async function startServer() {
   async function upsertWhatsappGroup(accountId: number, instanceId: number, group: any, raw: any = {}) {
     if (!group?.jid || !group.jid.endsWith("@g.us")) return null;
     const profile = await getChatProfile(accountId, instanceId, group.jid);
-    const name = profile.name || group.name || group.jid;
-    const pictureUrl = profile.pictureUrl || "";
+    const name = cleanDisplayName(group.name) || profile.name || group.jid;
+    const pictureUrl = group.pictureUrl || profile.pictureUrl || "";
     await run(
       `INSERT INTO whatsapp_groups
         (account_id, instance_id, group_jid, name, topic, owner_jid, participant_count, announce, locked, picture_url, raw_json, synced_at)
@@ -1959,7 +2014,14 @@ async function startServer() {
         detailRaw = bridgeResult(detail) || raw;
       } catch {}
       const group = normalizeBridgeGroup(detailRaw, listGroup.jid);
-      saved.push(await upsertWhatsappGroup(accountId, instanceId, { ...listGroup, ...group, jid: listGroup.jid, participants: group.participants?.length ? group.participants : listGroup.participants }, detailRaw));
+      saved.push(await upsertWhatsappGroup(accountId, instanceId, {
+        ...listGroup,
+        ...group,
+        jid: listGroup.jid,
+        name: group.name || listGroup.name,
+        pictureUrl: group.pictureUrl || listGroup.pictureUrl,
+        participants: group.participants?.length ? group.participants : listGroup.participants
+      }, detailRaw));
     }
     return saved.filter(Boolean);
   }
