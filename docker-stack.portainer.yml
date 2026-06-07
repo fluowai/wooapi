@@ -1,6 +1,6 @@
 version: "3.8"
 
-x-wooapi-image: &wooapi_image ghcr.io/woozapi/wasenderbr:latest
+x-wooapi-image: &wooapi_image ghcr.io/woosolutionsc/wasenderbr:latest
 
 x-wooapi-env: &wooapi_env
   NODE_ENV: production
