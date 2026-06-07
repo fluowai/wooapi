@@ -112,6 +112,44 @@ interface Conversation {
   assigned_to?: string;
 }
 
+interface WhatsAppGroup {
+  id: number;
+  account_id: number;
+  instance_id: number;
+  group_jid: string;
+  name?: string;
+  topic?: string;
+  participant_count?: number;
+  announce?: number;
+  locked?: number;
+  invite_link?: string;
+  picture_url?: string;
+  synced_at?: string;
+  participants?: GroupParticipant[];
+}
+
+interface GroupParticipant {
+  id?: number;
+  participant_jid: string;
+  phone?: string;
+  name?: string;
+  is_admin?: number;
+}
+
+interface GroupRule {
+  id?: number;
+  instance_id: number;
+  group_jid?: string;
+  name: string;
+  rule_type: 'keyword' | 'regex' | 'link' | 'media';
+  pattern: string;
+  action: 'log' | 'warn' | 'delete_message' | 'remove_participant' | 'warn_and_remove';
+  warning_text?: string;
+  threshold: number;
+  window_minutes: number;
+  enabled: number;
+}
+
 interface Message {
   id: number;
   conversation_id?: number;
@@ -1691,7 +1729,7 @@ export default function App() {
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [authForm, setAuthForm] = useState({ companyName: '', name: '', email: '', password: '' });
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'clients' | 'api_docs' | 'search' | 'leads' | 'agents' | 'whatsapp' | 'wooapi_monitor' | 'campaigns' | 'settings' | 'kanban' | 'messages' | 'agenda' | 'super_admin' | 'integrations' | 'support'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'clients' | 'api_docs' | 'search' | 'leads' | 'agents' | 'whatsapp' | 'wooapi_monitor' | 'campaigns' | 'settings' | 'kanban' | 'messages' | 'groups' | 'agenda' | 'super_admin' | 'integrations' | 'support'>('dashboard');
   const [settingsSubTab, setSettingsSubTab] = useState<'credentials' | 'team'>('credentials');
   const [loading, setLoading] = useState(false);
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -1722,6 +1760,26 @@ export default function App() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<number | null>(null);
   const [chatMessages, setChatMessages] = useState<Message[]>([]);
+  const [groups, setGroups] = useState<WhatsAppGroup[]>([]);
+  const [selectedGroupJid, setSelectedGroupJid] = useState('');
+  const [selectedGroup, setSelectedGroup] = useState<WhatsAppGroup | null>(null);
+  const [groupRules, setGroupRules] = useState<GroupRule[]>([]);
+  const [groupModerationEvents, setGroupModerationEvents] = useState<any[]>([]);
+  const [newGroup, setNewGroup] = useState({ name: '', participants: '' });
+  const [groupParticipantInput, setGroupParticipantInput] = useState('');
+  const [groupInviteInput, setGroupInviteInput] = useState('');
+  const [newGroupRule, setNewGroupRule] = useState<GroupRule>({
+    instance_id: 0,
+    group_jid: '',
+    name: '',
+    rule_type: 'keyword',
+    pattern: '',
+    action: 'warn',
+    warning_text: '',
+    threshold: 1,
+    window_minutes: 60,
+    enabled: 1
+  });
   const activeConversationIdRef = React.useRef<number | null>(null);
   const [newMessage, setNewMessage] = useState('');
   const [socket, setSocket] = useState<Socket | null>(null);
@@ -1929,6 +1987,103 @@ export default function App() {
     if (Array.isArray(events)) setWebhookEvents(events);
   };
 
+  const fetchGroups = async (instanceId = selectedWooInstanceId) => {
+    if (!instanceId) return;
+    const data = await apiFetch(`/api/groups?instance_id=${instanceId}`);
+    if (Array.isArray(data)) {
+      setGroups(data);
+      if (!selectedGroupJid && data.length) setSelectedGroupJid(data[0].group_jid);
+    }
+  };
+
+  const syncGroups = async () => {
+    if (!selectedWooInstanceId) return;
+    const data = await apiFetch('/api/groups/sync', {
+      method: 'POST',
+      body: JSON.stringify({ instance_id: selectedWooInstanceId })
+    });
+    if (data?.groups) {
+      setGroups(data.groups);
+      if (!selectedGroupJid && data.groups.length) setSelectedGroupJid(data.groups[0].group_jid);
+    } else {
+      fetchGroups();
+    }
+  };
+
+  const fetchGroupDetails = async (jid = selectedGroupJid) => {
+    if (!jid) return;
+    const [details, rules, events] = await Promise.all([
+      apiFetch(`/api/groups/${encodeURIComponent(jid)}`),
+      apiFetch(`/api/groups/moderation/rules?instance_id=${selectedWooInstanceId || 0}&group_jid=${encodeURIComponent(jid)}`),
+      apiFetch(`/api/groups/moderation/events?instance_id=${selectedWooInstanceId || 0}&group_jid=${encodeURIComponent(jid)}`)
+    ]);
+    if (details) setSelectedGroup(details);
+    if (Array.isArray(rules)) setGroupRules(rules);
+    if (Array.isArray(events)) setGroupModerationEvents(events);
+  };
+
+  const createGroup = async () => {
+    if (!selectedWooInstanceId || !newGroup.name.trim()) return;
+    const participants = newGroup.participants.split(/[\n,;]/).map(item => item.trim()).filter(Boolean);
+    await apiFetch('/api/groups', {
+      method: 'POST',
+      body: JSON.stringify({ instance_id: selectedWooInstanceId, name: newGroup.name, participants })
+    });
+    setNewGroup({ name: '', participants: '' });
+    syncGroups();
+  };
+
+  const groupAction = async (action: string, body: any = {}) => {
+    if (!selectedGroupJid) return;
+    const result = await apiFetch(`/api/groups/${encodeURIComponent(selectedGroupJid)}/action`, {
+      method: 'POST',
+      body: JSON.stringify({ action, ...body })
+    });
+    if (result) {
+      fetchGroups();
+      fetchGroupDetails();
+    }
+  };
+
+  const joinGroupByInvite = async () => {
+    if (!selectedWooInstanceId || !groupInviteInput.trim()) return;
+    await apiFetch('/api/groups/join', {
+      method: 'POST',
+      body: JSON.stringify({ instance_id: selectedWooInstanceId, code: groupInviteInput })
+    });
+    setGroupInviteInput('');
+    syncGroups();
+  };
+
+  const saveGroupRule = async () => {
+    if (!selectedWooInstanceId || !newGroupRule.pattern.trim()) return;
+    await apiFetch('/api/groups/moderation/rules', {
+      method: 'POST',
+      body: JSON.stringify({
+        ...newGroupRule,
+        instance_id: selectedWooInstanceId,
+        group_jid: selectedGroupJid,
+        name: newGroupRule.name || newGroupRule.pattern
+      })
+    });
+    setNewGroupRule({ ...newGroupRule, name: '', pattern: '', warning_text: '' });
+    fetchGroupDetails();
+  };
+
+  const toggleRule = async (rule: GroupRule) => {
+    await apiFetch(`/api/groups/moderation/rules/${rule.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ ...rule, enabled: rule.enabled ? 0 : 1 })
+    });
+    fetchGroupDetails();
+  };
+
+  const deleteRule = async (ruleId?: number) => {
+    if (!ruleId) return;
+    await apiFetch(`/api/groups/moderation/rules/${ruleId}`, { method: 'DELETE' });
+    fetchGroupDetails();
+  };
+
   const assignSelectedInstance = async () => {
     if (!selectedWooInstanceId) return;
     await apiFetch(`/api/admin/platform/instances/${selectedWooInstanceId}/assign`, { method: 'POST', body: JSON.stringify({}) });
@@ -2067,7 +2222,7 @@ export default function App() {
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash.replace('#', '') as any;
-      const validTabs = ['dashboard', 'clients', 'api_docs', 'search', 'leads', 'agents', 'whatsapp', 'wooapi_monitor', 'campaigns', 'settings', 'kanban', 'messages', 'agenda', 'super_admin', 'integrations', 'support'];
+      const validTabs = ['dashboard', 'clients', 'api_docs', 'search', 'leads', 'agents', 'whatsapp', 'wooapi_monitor', 'campaigns', 'settings', 'kanban', 'messages', 'groups', 'agenda', 'super_admin', 'integrations', 'support'];
       if (validTabs.includes(hash)) {
         setActiveTab(hash);
       }
@@ -2288,8 +2443,21 @@ export default function App() {
   useEffect(() => {
     if (auth && selectedWooInstanceId) {
       fetchWooApiPanel(selectedWooInstanceId);
+      if (activeTab === 'groups') fetchGroups(selectedWooInstanceId);
     }
-  }, [auth, selectedWooInstanceId]);
+  }, [auth, selectedWooInstanceId, activeTab]);
+
+  useEffect(() => {
+    if (auth && activeTab === 'groups' && selectedWooInstanceId) {
+      fetchGroups(selectedWooInstanceId);
+    }
+  }, [auth, activeTab, selectedWooInstanceId]);
+
+  useEffect(() => {
+    if (auth && activeTab === 'groups' && selectedGroupJid) {
+      fetchGroupDetails(selectedGroupJid);
+    }
+  }, [auth, activeTab, selectedGroupJid]);
 
   useEffect(() => {
     if (!auth || !qrModalInstance?.id) return;
@@ -2992,6 +3160,7 @@ export default function App() {
           <SidebarItem icon={Activity} label="Saúde da Plataforma" active={activeTab === 'wooapi_monitor'} onClick={() => setActiveTab('wooapi_monitor')} href="#wooapi_monitor" />
           <SidebarItem icon={Building2} label="Clientes SaaS" active={activeTab === 'clients'} onClick={() => setActiveTab('clients')} href="#clients" />
           <SidebarItem icon={MessagesSquare} label="Mensagens" active={activeTab === 'messages'} onClick={() => setActiveTab('messages')} href="#messages" />
+          <SidebarItem icon={Users} label="Grupos" active={activeTab === 'groups'} onClick={() => setActiveTab('groups')} href="#groups" />
           <SidebarItem icon={MessageSquare} label="Integrações" active={activeTab === 'api_docs'} onClick={() => setActiveTab('api_docs')} href="#api_docs" />
           <SidebarItem icon={Puzzle} label="Conectores" active={activeTab === 'integrations'} onClick={() => setActiveTab('integrations')} href="#integrations" />
           <SidebarItem icon={LifeBuoy} label="Suporte" active={activeTab === 'support'} onClick={() => setActiveTab('support')} href="#support" />
@@ -3406,6 +3575,209 @@ export default function App() {
                   </tbody>
                 </table>
               </Card>
+            </motion.div>
+          )}
+
+          {activeTab === 'groups' && (
+            <motion.div
+              key="groups"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-6"
+            >
+              <header className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <h2 className="text-3xl font-bold">Grupos WhatsApp</h2>
+                  <p className="text-slate-500">Gestão operacional de grupos, participantes, convites e moderação automática.</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+                    value={selectedWooInstanceId || ''}
+                    onChange={(e) => setSelectedWooInstanceId(Number(e.target.value))}
+                  >
+                    {instances.map(inst => <option key={inst.id} value={inst.id}>{inst.name}</option>)}
+                  </select>
+                  <button onClick={syncGroups} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-bold text-white">
+                    <RefreshCw size={16} /> Sincronizar
+                  </button>
+                </div>
+              </header>
+
+              <div className="grid grid-cols-1 gap-6 xl:grid-cols-[360px_1fr]">
+                <div className="space-y-4">
+                  <Card className="p-4">
+                    <h3 className="mb-3 text-sm font-black uppercase tracking-wider text-slate-500">Novo grupo</h3>
+                    <div className="space-y-3">
+                      <input className="w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm" placeholder="Nome do grupo" value={newGroup.name} onChange={e => setNewGroup({ ...newGroup, name: e.target.value })} />
+                      <textarea className="min-h-[76px] w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm" placeholder="Participantes, um por linha" value={newGroup.participants} onChange={e => setNewGroup({ ...newGroup, participants: e.target.value })} />
+                      <button onClick={createGroup} className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-sidebar-bg px-4 py-2 text-sm font-bold text-white">
+                        <Plus size={16} /> Criar grupo
+                      </button>
+                    </div>
+                  </Card>
+
+                  <Card className="overflow-hidden">
+                    <div className="border-b border-slate-100 p-4">
+                      <p className="text-xs font-black uppercase tracking-wider text-slate-400">{groups.length} grupos sincronizados</p>
+                    </div>
+                    <div className="max-h-[620px] overflow-y-auto">
+                      {groups.map(group => (
+                        <button
+                          key={group.group_jid}
+                          onClick={() => setSelectedGroupJid(group.group_jid)}
+                          className={cn(
+                            "flex w-full items-center gap-3 border-b border-slate-50 px-4 py-3 text-left hover:bg-slate-50",
+                            selectedGroupJid === group.group_jid && "bg-slate-100"
+                          )}
+                        >
+                          <div className="h-11 w-11 overflow-hidden rounded-md bg-slate-100 text-slate-700 flex items-center justify-center font-black">
+                            {group.picture_url ? <img src={sameOriginMediaUrl(group.picture_url)} className="h-full w-full object-cover" /> : <Users size={18} />}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-black">{group.name || group.group_jid}</p>
+                            <p className="truncate text-xs text-slate-500">{group.participant_count || 0} participantes</p>
+                          </div>
+                          {(group.announce || group.locked) ? <ShieldCheck size={16} className="text-primary" /> : null}
+                        </button>
+                      ))}
+                    </div>
+                  </Card>
+                </div>
+
+                <div className="space-y-6">
+                  {selectedGroup ? (
+                    <>
+                      <Card className="p-5">
+                        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                          <div className="flex items-center gap-4">
+                            <div className="h-16 w-16 overflow-hidden rounded-md bg-slate-100 flex items-center justify-center">
+                              {selectedGroup.picture_url ? <img src={sameOriginMediaUrl(selectedGroup.picture_url)} className="h-full w-full object-cover" /> : <Users size={24} />}
+                            </div>
+                            <div className="min-w-0">
+                              <h3 className="truncate text-2xl font-black">{selectedGroup.name || selectedGroup.group_jid}</h3>
+                              <p className="truncate text-sm text-slate-500">{selectedGroup.group_jid}</p>
+                              <p className="mt-1 text-xs text-slate-400">{selectedGroup.topic || 'Sem descrição'}</p>
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <button onClick={() => groupAction('name', { name: prompt('Novo nome do grupo', selectedGroup.name || '') || selectedGroup.name })} className="rounded-md border border-slate-200 px-3 py-2 text-xs font-bold">Nome</button>
+                            <button onClick={() => groupAction('topic', { topic: prompt('Nova descrição', selectedGroup.topic || '') || selectedGroup.topic })} className="rounded-md border border-slate-200 px-3 py-2 text-xs font-bold">Descrição</button>
+                            <button onClick={() => groupAction('invite', { reset: false })} className="rounded-md border border-slate-200 px-3 py-2 text-xs font-bold">Convite</button>
+                            <button onClick={() => groupAction('settings', { announce: !selectedGroup.announce, locked: Boolean(selectedGroup.locked) })} className="rounded-md border border-slate-200 px-3 py-2 text-xs font-bold">{selectedGroup.announce ? 'Abrir envio' : 'Só admins'}</button>
+                          </div>
+                        </div>
+                        {selectedGroup.invite_link && (
+                          <div className="mt-4 rounded-md border border-slate-100 bg-slate-50 p-3 text-xs text-slate-600">
+                            {selectedGroup.invite_link}
+                          </div>
+                        )}
+                      </Card>
+
+                      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+                        <Card className="p-5">
+                          <div className="mb-4 flex items-center justify-between">
+                            <h3 className="font-black">Participantes</h3>
+                            <span className="text-xs font-bold text-slate-400">{selectedGroup.participants?.length || 0}</span>
+                          </div>
+                          <div className="mb-4 flex gap-2">
+                            <input className="min-w-0 flex-1 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm" placeholder="Telefone ou JID" value={groupParticipantInput} onChange={e => setGroupParticipantInput(e.target.value)} />
+                            <button onClick={() => { groupAction('participants', { participants: [groupParticipantInput], participant_action: 'add' }); setGroupParticipantInput(''); }} className="rounded-md bg-primary px-3 py-2 text-sm font-bold text-white">Adicionar</button>
+                          </div>
+                          <div className="max-h-[360px] space-y-2 overflow-y-auto">
+                            {(selectedGroup.participants || []).map(participant => (
+                              <div key={participant.participant_jid} className="flex items-center justify-between gap-3 rounded-md border border-slate-100 px-3 py-2">
+                                <div className="min-w-0">
+                                  <p className="truncate text-sm font-bold">{participant.name || participant.phone || participant.participant_jid}</p>
+                                  <p className="truncate text-xs text-slate-400">{participant.participant_jid}</p>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  {participant.is_admin ? <span className="rounded bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700">ADMIN</span> : null}
+                                  <button onClick={() => groupAction('participants', { participants: [participant.participant_jid], participant_action: participant.is_admin ? 'demote' : 'promote' })} className="p-2 text-slate-400 hover:text-primary"><UserCog size={15} /></button>
+                                  <button onClick={() => groupAction('participants', { participants: [participant.participant_jid], participant_action: 'remove' })} className="p-2 text-slate-400 hover:text-rose-600"><Trash2 size={15} /></button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </Card>
+
+                        <Card className="p-5">
+                          <h3 className="mb-4 font-black">Entrar por convite</h3>
+                          <div className="flex gap-2">
+                            <input className="min-w-0 flex-1 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm" placeholder="https://chat.whatsapp.com/..." value={groupInviteInput} onChange={e => setGroupInviteInput(e.target.value)} />
+                            <button onClick={joinGroupByInvite} className="rounded-md bg-sidebar-bg px-3 py-2 text-sm font-bold text-white">Entrar</button>
+                          </div>
+                          <div className="mt-6 grid grid-cols-2 gap-3">
+                            <div className="rounded-md border border-slate-100 p-4">
+                              <p className="text-xs font-bold text-slate-400">Modo anúncio</p>
+                              <p className="mt-1 text-lg font-black">{selectedGroup.announce ? 'Ativo' : 'Inativo'}</p>
+                            </div>
+                            <div className="rounded-md border border-slate-100 p-4">
+                              <p className="text-xs font-bold text-slate-400">Edição restrita</p>
+                              <p className="mt-1 text-lg font-black">{selectedGroup.locked ? 'Ativa' : 'Inativa'}</p>
+                            </div>
+                          </div>
+                        </Card>
+                      </div>
+
+                      <Card className="p-5">
+                        <div className="mb-4 flex items-center gap-2">
+                          <ShieldCheck size={18} className="text-primary" />
+                          <h3 className="font-black">Moderação automática</h3>
+                        </div>
+                        <div className="grid grid-cols-1 gap-3 lg:grid-cols-6">
+                          <input className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm lg:col-span-1" placeholder="Nome" value={newGroupRule.name} onChange={e => setNewGroupRule({ ...newGroupRule, name: e.target.value })} />
+                          <select className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm" value={newGroupRule.rule_type} onChange={e => setNewGroupRule({ ...newGroupRule, rule_type: e.target.value as any })}>
+                            <option value="keyword">Palavra</option>
+                            <option value="regex">Regex</option>
+                            <option value="link">Link</option>
+                            <option value="media">Mídia</option>
+                          </select>
+                          <input className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm lg:col-span-2" placeholder="Palavra, domínio, regex ou *" value={newGroupRule.pattern} onChange={e => setNewGroupRule({ ...newGroupRule, pattern: e.target.value })} />
+                          <select className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm" value={newGroupRule.action} onChange={e => setNewGroupRule({ ...newGroupRule, action: e.target.value as any })}>
+                            <option value="warn">Avisar</option>
+                            <option value="remove_participant">Remover</option>
+                            <option value="warn_and_remove">Avisar + remover</option>
+                            <option value="delete_message">Apagar</option>
+                            <option value="log">Log</option>
+                          </select>
+                          <button onClick={saveGroupRule} className="rounded-md bg-primary px-4 py-2 text-sm font-bold text-white">Salvar</button>
+                          <input className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm lg:col-span-3" placeholder="Mensagem de aviso" value={newGroupRule.warning_text || ''} onChange={e => setNewGroupRule({ ...newGroupRule, warning_text: e.target.value })} />
+                          <input className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm" type="number" min="1" value={newGroupRule.threshold} onChange={e => setNewGroupRule({ ...newGroupRule, threshold: Number(e.target.value) })} />
+                          <input className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm" type="number" min="1" value={newGroupRule.window_minutes} onChange={e => setNewGroupRule({ ...newGroupRule, window_minutes: Number(e.target.value) })} />
+                        </div>
+                        <div className="mt-5 grid grid-cols-1 gap-3 xl:grid-cols-2">
+                          <div className="space-y-2">
+                            {groupRules.map(rule => (
+                              <div key={rule.id} className="flex items-center justify-between gap-3 rounded-md border border-slate-100 p-3">
+                                <div>
+                                  <p className="text-sm font-black">{rule.name}</p>
+                                  <p className="text-xs text-slate-500">{rule.rule_type} · {rule.pattern} · {rule.action}</p>
+                                </div>
+                                <div className="flex gap-1">
+                                  <button onClick={() => toggleRule(rule)} className={cn("rounded px-2 py-1 text-xs font-bold", rule.enabled ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500")}>{rule.enabled ? 'ON' : 'OFF'}</button>
+                                  <button onClick={() => deleteRule(rule.id)} className="p-2 text-slate-400 hover:text-rose-600"><Trash2 size={15} /></button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="max-h-[320px] space-y-2 overflow-y-auto">
+                            {groupModerationEvents.map(event => (
+                              <div key={event.id} className="rounded-md border border-slate-100 p-3">
+                                <p className="text-sm font-bold">{event.rule_name || `Regra #${event.rule_id}`} <span className="text-xs text-slate-400">{event.status}</span></p>
+                                <p className="text-xs text-slate-500">{event.participant_jid} · {event.action} · {formatDate(event.created_at)}</p>
+                                {event.error && <p className="mt-1 text-xs text-rose-600">{event.error}</p>}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </Card>
+                    </>
+                  ) : (
+                    <Card className="p-10 text-center text-slate-400">Sincronize uma instância para carregar os grupos.</Card>
+                  )}
+                </div>
+              </div>
             </motion.div>
           )}
 

@@ -369,6 +369,90 @@ create table if not exists messages (
   deleted_at timestamptz
 );
 
+create table if not exists whatsapp_groups (
+  id bigserial primary key,
+  account_id bigint not null references accounts(id) on delete cascade,
+  instance_id bigint references instances(id) on delete cascade,
+  group_jid text not null,
+  name text,
+  topic text,
+  owner_jid text,
+  participant_count integer default 0,
+  is_admin integer default 0,
+  announce integer default 0,
+  locked integer default 0,
+  invite_link text,
+  picture_url text,
+  raw_json text default '{}',
+  synced_at timestamptz,
+  created_at timestamptz not null default current_timestamp,
+  updated_at timestamptz not null default current_timestamp,
+  unique(instance_id, group_jid)
+);
+
+drop trigger if exists whatsapp_groups_set_updated_at on whatsapp_groups;
+create trigger whatsapp_groups_set_updated_at
+before update on whatsapp_groups
+for each row execute function set_updated_at();
+
+create table if not exists whatsapp_group_participants (
+  id bigserial primary key,
+  account_id bigint not null references accounts(id) on delete cascade,
+  instance_id bigint references instances(id) on delete cascade,
+  group_jid text not null,
+  participant_jid text not null,
+  phone text,
+  name text,
+  is_admin integer default 0,
+  raw_json text default '{}',
+  synced_at timestamptz,
+  created_at timestamptz not null default current_timestamp,
+  updated_at timestamptz not null default current_timestamp,
+  unique(instance_id, group_jid, participant_jid)
+);
+
+drop trigger if exists whatsapp_group_participants_set_updated_at on whatsapp_group_participants;
+create trigger whatsapp_group_participants_set_updated_at
+before update on whatsapp_group_participants
+for each row execute function set_updated_at();
+
+create table if not exists group_moderation_rules (
+  id bigserial primary key,
+  account_id bigint not null references accounts(id) on delete cascade,
+  instance_id bigint references instances(id) on delete cascade,
+  group_jid text,
+  name text,
+  rule_type text not null default 'keyword',
+  pattern text not null,
+  action text not null default 'warn',
+  warning_text text,
+  threshold integer not null default 1,
+  window_minutes integer not null default 60,
+  enabled integer not null default 1,
+  created_at timestamptz not null default current_timestamp,
+  updated_at timestamptz not null default current_timestamp
+);
+
+drop trigger if exists group_moderation_rules_set_updated_at on group_moderation_rules;
+create trigger group_moderation_rules_set_updated_at
+before update on group_moderation_rules
+for each row execute function set_updated_at();
+
+create table if not exists group_moderation_events (
+  id bigserial primary key,
+  account_id bigint not null references accounts(id) on delete cascade,
+  instance_id bigint references instances(id) on delete cascade,
+  group_jid text not null,
+  participant_jid text,
+  message_id text,
+  rule_id bigint references group_moderation_rules(id) on delete set null,
+  action text,
+  matched_text text,
+  status text default 'logged',
+  error text,
+  created_at timestamptz not null default current_timestamp
+);
+
 create table if not exists wooapi_events (
   id bigserial primary key,
   account_id bigint references accounts(id) on delete cascade,
@@ -632,6 +716,11 @@ create index if not exists idx_conversations_phone on conversations(contact_phon
 create index if not exists idx_messages_account_instance on messages(account_id, instance_id);
 create index if not exists idx_messages_conversation on messages(conversation_id);
 create index if not exists idx_messages_message_id on messages(message_id);
+create index if not exists idx_whatsapp_groups_instance on whatsapp_groups(instance_id, group_jid);
+create index if not exists idx_whatsapp_groups_account on whatsapp_groups(account_id, instance_id);
+create index if not exists idx_whatsapp_group_participants_group on whatsapp_group_participants(instance_id, group_jid);
+create index if not exists idx_group_moderation_rules_group on group_moderation_rules(account_id, instance_id, group_jid, enabled);
+create index if not exists idx_group_moderation_events_group on group_moderation_events(account_id, instance_id, group_jid, created_at);
 create index if not exists idx_wooapi_events_instance on wooapi_events(instance_id);
 create index if not exists idx_wooapi_events_event_id on wooapi_events(event_id);
 create index if not exists idx_instance_webhooks_instance on instance_webhooks(instance_id);

@@ -907,6 +907,10 @@ async function migrate() {
     CREATE TABLE IF NOT EXISTS llm_credentials (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER, provider TEXT, name TEXT, api_key TEXT, model_name TEXT, is_active INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);
     CREATE TABLE IF NOT EXISTS conversations (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER, instance_id INTEGER, type TEXT DEFAULT 'contact', remote_jid TEXT, contact_phone TEXT, group_jid TEXT, title TEXT, contact_profile_picture_url TEXT, tags_json TEXT DEFAULT '[]', status TEXT DEFAULT 'open', assigned_to TEXT, last_message_preview TEXT, unread_count INTEGER DEFAULT 0, last_message_at DATETIME DEFAULT CURRENT_TIMESTAMP, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);
     CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER, instance_id INTEGER, conversation_id INTEGER, lead_id INTEGER, direction TEXT, chat_type TEXT, author_phone TEXT, author_push_name TEXT, content_type TEXT DEFAULT 'text', content_text TEXT, message_id TEXT, delivery_status TEXT DEFAULT 'received', from_me INTEGER DEFAULT 0, sender TEXT, raw_json TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);
+    CREATE TABLE IF NOT EXISTS whatsapp_groups (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER, instance_id INTEGER, group_jid TEXT, name TEXT, topic TEXT, owner_jid TEXT, participant_count INTEGER DEFAULT 0, is_admin INTEGER DEFAULT 0, announce INTEGER DEFAULT 0, locked INTEGER DEFAULT 0, invite_link TEXT, picture_url TEXT, raw_json TEXT DEFAULT '{}', synced_at DATETIME, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE(instance_id, group_jid));
+    CREATE TABLE IF NOT EXISTS whatsapp_group_participants (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER, instance_id INTEGER, group_jid TEXT, participant_jid TEXT, phone TEXT, name TEXT, is_admin INTEGER DEFAULT 0, raw_json TEXT DEFAULT '{}', synced_at DATETIME, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE(instance_id, group_jid, participant_jid));
+    CREATE TABLE IF NOT EXISTS group_moderation_rules (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER, instance_id INTEGER, group_jid TEXT, name TEXT, rule_type TEXT DEFAULT 'keyword', pattern TEXT, action TEXT DEFAULT 'warn', warning_text TEXT, threshold INTEGER DEFAULT 1, window_minutes INTEGER DEFAULT 60, enabled INTEGER DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);
+    CREATE TABLE IF NOT EXISTS group_moderation_events (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER, instance_id INTEGER, group_jid TEXT, participant_jid TEXT, message_id TEXT, rule_id INTEGER, action TEXT, matched_text TEXT, status TEXT DEFAULT 'logged', error TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);
     CREATE TABLE IF NOT EXISTS webhook_events (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER, instance_id INTEGER, webhook_id INTEGER, url TEXT, event TEXT, payload TEXT, status TEXT DEFAULT 'pending', response_status INTEGER, error TEXT, attempts INTEGER DEFAULT 0, retry_count INTEGER DEFAULT 0, last_attempt_at DATETIME, next_retry_at DATETIME, delivered_at DATETIME, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);
     CREATE TABLE IF NOT EXISTS wooapi_events (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER, instance_id INTEGER, event_id TEXT UNIQUE, event TEXT, payload TEXT DEFAULT '{}', created_at DATETIME DEFAULT CURRENT_TIMESTAMP);
     CREATE TABLE IF NOT EXISTS instance_webhooks (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER NOT NULL, instance_id INTEGER NOT NULL, name TEXT, url TEXT NOT NULL, secret TEXT NOT NULL, events TEXT DEFAULT '[]', is_active INTEGER DEFAULT 1, retry_enabled INTEGER DEFAULT 1, max_attempts INTEGER DEFAULT 5, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);
@@ -972,6 +976,10 @@ async function migrate() {
     credentials: {},
     conversations: { instance_id: "INTEGER", type: "TEXT DEFAULT 'contact'", remote_jid: "TEXT", group_jid: "TEXT", contact_profile_picture_url: "TEXT", tags_json: "TEXT DEFAULT '[]'", status: "TEXT DEFAULT 'open'", assigned_to: "TEXT", last_message_preview: "TEXT", unread_count: "INTEGER DEFAULT 0", updated_at: "DATETIME" },
     messages: { instance_id: "INTEGER", lead_id: "INTEGER", chat_type: "TEXT", author_phone: "TEXT", author_push_name: "TEXT", content_type: "TEXT DEFAULT 'text'", message_id: "TEXT", delivery_status: "TEXT DEFAULT 'received'", from_me: "INTEGER DEFAULT 0", sender: "TEXT", raw_json: "TEXT" },
+    whatsapp_groups: { account_id: "INTEGER", instance_id: "INTEGER", group_jid: "TEXT", name: "TEXT", topic: "TEXT", owner_jid: "TEXT", participant_count: "INTEGER DEFAULT 0", is_admin: "INTEGER DEFAULT 0", announce: "INTEGER DEFAULT 0", locked: "INTEGER DEFAULT 0", invite_link: "TEXT", picture_url: "TEXT", raw_json: "TEXT DEFAULT '{}'", synced_at: "DATETIME", updated_at: "DATETIME" },
+    whatsapp_group_participants: { account_id: "INTEGER", instance_id: "INTEGER", group_jid: "TEXT", participant_jid: "TEXT", phone: "TEXT", name: "TEXT", is_admin: "INTEGER DEFAULT 0", raw_json: "TEXT DEFAULT '{}'", synced_at: "DATETIME", updated_at: "DATETIME" },
+    group_moderation_rules: { account_id: "INTEGER", instance_id: "INTEGER", group_jid: "TEXT", name: "TEXT", rule_type: "TEXT DEFAULT 'keyword'", pattern: "TEXT", action: "TEXT DEFAULT 'warn'", warning_text: "TEXT", threshold: "INTEGER DEFAULT 1", window_minutes: "INTEGER DEFAULT 60", enabled: "INTEGER DEFAULT 1", updated_at: "DATETIME" },
+    group_moderation_events: { account_id: "INTEGER", instance_id: "INTEGER", group_jid: "TEXT", participant_jid: "TEXT", message_id: "TEXT", rule_id: "INTEGER", action: "TEXT", matched_text: "TEXT", status: "TEXT DEFAULT 'logged'", error: "TEXT" },
     webhook_events: { webhook_id: "INTEGER", url: "TEXT", attempts: "INTEGER DEFAULT 0", retry_count: "INTEGER DEFAULT 0", last_attempt_at: "DATETIME", next_retry_at: "DATETIME" },
     wooapi_events: { account_id: "INTEGER", instance_id: "INTEGER", event_id: "TEXT", event: "TEXT", payload: "TEXT DEFAULT '{}'", created_at: "DATETIME" },
     instance_webhooks: { account_id: "INTEGER", instance_id: "INTEGER", name: "TEXT", url: "TEXT", secret: "TEXT", events: "TEXT DEFAULT '[]'", is_active: "INTEGER DEFAULT 1", retry_enabled: "INTEGER DEFAULT 1", max_attempts: "INTEGER DEFAULT 5", updated_at: "DATETIME" },
@@ -1841,6 +1849,206 @@ async function startServer() {
       method: "POST",
       body: JSON.stringify({ account_id: Number(inst.account_id), ...body })
     });
+  }
+
+  function bridgeResult(value: any) {
+    return value?.result ?? value?.data ?? value;
+  }
+
+  function jidString(value: any) {
+    if (!value) return "";
+    if (typeof value === "string") return value;
+    if (value.String || value.string) return String(value.String || value.string);
+    if (value.User || value.user) return `${value.User || value.user}@${value.Server || value.server || "s.whatsapp.net"}`;
+    if (value.JID || value.jid) return jidString(value.JID || value.jid);
+    return "";
+  }
+
+  function normalizeGroupParticipant(participant: any) {
+    const jid = jidString(participant?.JID || participant?.jid || participant?.ID || participant?.id || participant);
+    return {
+      jid,
+      phone: normalizePhone(jid),
+      name: cleanDisplayName(participant?.Name || participant?.name || participant?.PushName || participant?.pushName || ""),
+      isAdmin: Number(Boolean(participant?.IsAdmin || participant?.isAdmin || participant?.Admin || participant?.admin || participant?.IsSuperAdmin || participant?.isSuperAdmin))
+    };
+  }
+
+  function normalizeBridgeGroup(raw: any, fallbackJid = "") {
+    const jid = jidString(raw?.JID || raw?.jid || raw?.ID || raw?.id || raw?.GroupJID || raw?.groupJid || fallbackJid);
+    const participants = Array.isArray(raw?.Participants || raw?.participants)
+      ? (raw.Participants || raw.participants).map(normalizeGroupParticipant).filter((item: any) => item.jid)
+      : [];
+    return {
+      jid,
+      name: cleanDisplayName(raw?.Name || raw?.name || raw?.Subject || raw?.subject || raw?.Topic || raw?.topic || ""),
+      topic: String(raw?.Topic || raw?.topic || raw?.Description || raw?.description || ""),
+      ownerJid: jidString(raw?.OwnerJID || raw?.ownerJID || raw?.Owner || raw?.owner),
+      participantCount: Number(raw?.ParticipantCount || raw?.participantCount || participants.length || 0),
+      announce: Number(Boolean(raw?.Announce || raw?.announce || raw?.IsAnnounce || raw?.isAnnounce)),
+      locked: Number(Boolean(raw?.Locked || raw?.locked || raw?.IsLocked || raw?.isLocked)),
+      participants
+    };
+  }
+
+  async function upsertWhatsappGroup(accountId: number, instanceId: number, group: any, raw: any = {}) {
+    if (!group?.jid || !group.jid.endsWith("@g.us")) return null;
+    const profile = await getChatProfile(accountId, instanceId, group.jid);
+    const name = profile.name || group.name || group.jid;
+    const pictureUrl = profile.pictureUrl || "";
+    await run(
+      `INSERT INTO whatsapp_groups
+        (account_id, instance_id, group_jid, name, topic, owner_jid, participant_count, announce, locked, picture_url, raw_json, synced_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+       ON CONFLICT(instance_id, group_jid) DO UPDATE SET
+        name = excluded.name,
+        topic = excluded.topic,
+        owner_jid = excluded.owner_jid,
+        participant_count = excluded.participant_count,
+        announce = excluded.announce,
+        locked = excluded.locked,
+        picture_url = COALESCE(NULLIF(excluded.picture_url, ''), whatsapp_groups.picture_url),
+        raw_json = excluded.raw_json,
+        synced_at = CURRENT_TIMESTAMP,
+        updated_at = CURRENT_TIMESTAMP`,
+      [accountId, instanceId, group.jid, name, group.topic || "", group.ownerJid || "", group.participantCount || 0, group.announce || 0, group.locked || 0, pictureUrl, JSON.stringify(raw || {})]
+    );
+    await run(
+      "UPDATE conversations SET title = COALESCE(NULLIF(?, ''), title), contact_profile_picture_url = COALESCE(NULLIF(?, ''), contact_profile_picture_url), type = 'group', group_jid = ?, remote_jid = ?, updated_at = CURRENT_TIMESTAMP WHERE account_id = ? AND instance_id = ? AND group_jid = ?",
+      [name, pictureUrl, group.jid, group.jid, accountId, instanceId, group.jid]
+    );
+    for (const participant of group.participants || []) {
+      await run(
+        `INSERT INTO whatsapp_group_participants
+          (account_id, instance_id, group_jid, participant_jid, phone, name, is_admin, raw_json, synced_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+         ON CONFLICT(instance_id, group_jid, participant_jid) DO UPDATE SET
+          phone = excluded.phone,
+          name = COALESCE(NULLIF(excluded.name, ''), whatsapp_group_participants.name),
+          is_admin = excluded.is_admin,
+          raw_json = excluded.raw_json,
+          synced_at = CURRENT_TIMESTAMP,
+          updated_at = CURRENT_TIMESTAMP`,
+        [accountId, instanceId, group.jid, participant.jid, participant.phone, participant.name, participant.isAdmin, JSON.stringify(participant)]
+      );
+    }
+    return await get("SELECT * FROM whatsapp_groups WHERE account_id = ? AND instance_id = ? AND group_jid = ?", [accountId, instanceId, group.jid]);
+  }
+
+  async function syncWhatsappGroups(inst: any) {
+    const accountId = Number(inst.account_id);
+    const instanceId = Number(inst.id);
+    const data = await bridgeFetch(`/instances/${instanceId}/groups?account_id=${accountId}`);
+    const groups = Array.isArray(bridgeResult(data)) ? bridgeResult(data) : [];
+    const saved: any[] = [];
+    for (const raw of groups) {
+      const listGroup = normalizeBridgeGroup(raw);
+      if (!listGroup.jid) continue;
+      let detailRaw = raw;
+      try {
+        const detail = await callAdvancedBridge(inst, "/groups/info", { jid: listGroup.jid });
+        detailRaw = bridgeResult(detail) || raw;
+      } catch {}
+      const group = normalizeBridgeGroup(detailRaw, listGroup.jid);
+      saved.push(await upsertWhatsappGroup(accountId, instanceId, { ...listGroup, ...group, jid: listGroup.jid, participants: group.participants?.length ? group.participants : listGroup.participants }, detailRaw));
+    }
+    return saved.filter(Boolean);
+  }
+
+  async function accountInstance(accountId: number, instanceId?: any) {
+    const id = Number(instanceId || 0);
+    if (id) return await get("SELECT * FROM instances WHERE account_id = ? AND id = ? AND deleted_at IS NULL", [accountId, id]);
+    return await get("SELECT * FROM instances WHERE account_id = ? AND deleted_at IS NULL ORDER BY id ASC LIMIT 1", [accountId]);
+  }
+
+  function moderationMatch(rule: any, input: { text: string; contentType: string }) {
+    const pattern = String(rule.pattern || "").trim();
+    if (!pattern) return "";
+    const text = String(input.text || "");
+    const type = String(rule.rule_type || "keyword").toLowerCase();
+    if (type === "keyword") return text.toLowerCase().includes(pattern.toLowerCase()) ? pattern : "";
+    if (type === "regex") {
+      try {
+        const match = text.match(new RegExp(pattern, "i"));
+        return match?.[0] || "";
+      } catch {
+        return "";
+      }
+    }
+    if (type === "link") {
+      const hasLink = /(https?:\/\/|www\.|chat\.whatsapp\.com\/|wa\.me\/)/i.test(text);
+      if (!hasLink) return "";
+      return pattern === "*" || text.toLowerCase().includes(pattern.toLowerCase()) ? pattern : "";
+    }
+    if (type === "media") {
+      return pattern === "*" || String(input.contentType).toLowerCase() === pattern.toLowerCase() ? input.contentType : "";
+    }
+    return "";
+  }
+
+  async function applyGroupModeration(input: {
+    accountId: number;
+    instanceId: number;
+    groupJid: string;
+    participantJid: string;
+    messageId: string;
+    contentType: string;
+    contentText: string;
+  }) {
+    if (!input.groupJid.endsWith("@g.us") || !input.participantJid || input.participantJid.endsWith("@g.us")) return;
+    const inst = await get("SELECT * FROM instances WHERE id = ? AND account_id = ?", [input.instanceId, input.accountId]);
+    if (!inst) return;
+    const rules = await query(
+      "SELECT * FROM group_moderation_rules WHERE account_id = ? AND instance_id = ? AND enabled = 1 AND (group_jid IS NULL OR group_jid = '' OR group_jid = ?) ORDER BY id ASC",
+      [input.accountId, input.instanceId, input.groupJid]
+    );
+    for (const rule of rules as any[]) {
+      const matched = moderationMatch(rule, { text: input.contentText, contentType: input.contentType });
+      if (!matched) continue;
+      const since = new Date(Date.now() - Math.max(1, Number(rule.window_minutes || 60)) * 60000).toISOString();
+      const recent = await get(
+        "SELECT COUNT(*) AS total FROM group_moderation_events WHERE account_id = ? AND instance_id = ? AND group_jid = ? AND participant_jid = ? AND rule_id = ? AND created_at >= ?",
+        [input.accountId, input.instanceId, input.groupJid, input.participantJid, rule.id, since]
+      );
+      const violations = Number(recent?.total || 0) + 1;
+      const threshold = Math.max(1, Number(rule.threshold || 1));
+      const action = String(rule.action || "warn");
+      let status = violations >= threshold ? "applied" : "logged";
+      let error = "";
+      const warningText = String(rule.warning_text || `Regra do grupo violada: ${rule.name || rule.pattern}`).trim();
+      try {
+        if (violations >= threshold) {
+          if (["warn", "warn_and_remove"].includes(action) && warningText) {
+            await sendWhatsAppMessage(input.instanceId, input.accountId, input.groupJid, warningText);
+          }
+          if (["delete_message", "warn_and_remove"].includes(action)) {
+            await callAdvancedBridge(inst, "/messages/delete", { jid: input.groupJid, message_id: input.messageId, sender: input.participantJid });
+          }
+          if (["remove_participant", "warn_and_remove"].includes(action)) {
+            await callAdvancedBridge(inst, "/groups/participants", { jid: input.groupJid, participants: [input.participantJid], action: "remove" });
+          }
+        }
+      } catch (err: any) {
+        status = "failed";
+        error = sanitizePublicError(err);
+      }
+      await run(
+        "INSERT INTO group_moderation_events (account_id, instance_id, group_jid, participant_jid, message_id, rule_id, action, matched_text, status, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [input.accountId, input.instanceId, input.groupJid, input.participantJid, input.messageId, rule.id, action, matched, status, error]
+      );
+      await dispatchWebhook(input.instanceId, "group.moderation.triggered", {
+        group_jid: input.groupJid,
+        participant_jid: input.participantJid,
+        message_id: input.messageId,
+        rule_id: rule.id,
+        rule_name: rule.name,
+        action,
+        matched,
+        status,
+        error
+      }).catch(() => null);
+      if (status === "applied" && ["remove_participant", "warn_and_remove", "delete_message"].includes(action)) break;
+    }
   }
 
   async function persistAdvancedBridgeOperation(inst: any, endpoint: string, body: any, response: any) {
@@ -5383,6 +5591,163 @@ const session = await requireV1Account(req, res);
     res.json({ account, plan });
   });
 
+  app.get("/api/groups", async (req: AccountRequest, res) => {
+    const instanceId = Number(req.query.instance_id || 0);
+    const rows = await query(
+      "SELECT * FROM whatsapp_groups WHERE account_id = ? AND (? = 0 OR instance_id = ?) ORDER BY updated_at DESC, name ASC",
+      [req.accountId, instanceId || 0, instanceId || 0]
+    );
+    res.json(rows);
+  });
+
+  app.post("/api/groups/sync", async (req: AccountRequest, res) => {
+    const inst = await accountInstance(Number(req.accountId), req.body?.instance_id || req.query.instance_id);
+    if (!inst) return res.status(404).json({ error: "Instancia nao encontrada" });
+    try {
+      const groups = await syncWhatsappGroups(inst);
+      res.json({ success: true, groups });
+    } catch (error) {
+      res.status(502).json({ error: sanitizePublicError(error) });
+    }
+  });
+
+  app.post("/api/groups", async (req: AccountRequest, res) => {
+    const inst = await accountInstance(Number(req.accountId), req.body?.instance_id);
+    if (!inst) return res.status(404).json({ error: "Instancia nao encontrada" });
+    try {
+      const result = await callAdvancedBridge(inst, "/groups", { name: req.body?.name, participants: req.body?.participants || [] });
+      await syncWhatsappGroups(inst).catch(() => []);
+      res.json({ success: true, result: bridgeResult(result) });
+    } catch (error) {
+      res.status(502).json({ error: sanitizePublicError(error) });
+    }
+  });
+
+  app.get("/api/groups/moderation/rules", async (req: AccountRequest, res) => {
+    const instanceId = Number(req.query.instance_id || 0);
+    const groupJid = String(req.query.group_jid || "");
+    res.json(await query(
+      "SELECT * FROM group_moderation_rules WHERE account_id = ? AND (? = 0 OR instance_id = ?) AND (? = '' OR group_jid = ? OR group_jid IS NULL OR group_jid = '') ORDER BY enabled DESC, id DESC",
+      [req.accountId, instanceId, instanceId, groupJid, groupJid]
+    ));
+  });
+
+  app.post("/api/groups/moderation/rules", async (req: AccountRequest, res) => {
+    const inst = await accountInstance(Number(req.accountId), req.body?.instance_id);
+    if (!inst) return res.status(404).json({ error: "Instancia nao encontrada" });
+    const name = String(req.body?.name || req.body?.pattern || "Regra").trim();
+    const pattern = String(req.body?.pattern || "").trim();
+    if (!pattern) return res.status(400).json({ error: "Padrao da regra obrigatorio" });
+    const info = await run(
+      `INSERT INTO group_moderation_rules
+        (account_id, instance_id, group_jid, name, rule_type, pattern, action, warning_text, threshold, window_minutes, enabled)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        req.accountId,
+        inst.id,
+        req.body?.group_jid || "",
+        name,
+        req.body?.rule_type || "keyword",
+        pattern,
+        req.body?.action || "warn",
+        req.body?.warning_text || "",
+        Math.max(1, Number(req.body?.threshold || 1)),
+        Math.max(1, Number(req.body?.window_minutes || 60)),
+        req.body?.enabled === false ? 0 : 1
+      ]
+    );
+    res.json(await get("SELECT * FROM group_moderation_rules WHERE id = ?", [info.lastInsertRowid]));
+  });
+
+  app.patch("/api/groups/moderation/rules/:id", async (req: AccountRequest, res) => {
+    const existing = await get("SELECT * FROM group_moderation_rules WHERE account_id = ? AND id = ?", [req.accountId, req.params.id]);
+    if (!existing) return res.status(404).json({ error: "Regra nao encontrada" });
+    await run(
+      `UPDATE group_moderation_rules SET
+        name = ?, rule_type = ?, pattern = ?, action = ?, warning_text = ?,
+        threshold = ?, window_minutes = ?, enabled = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE account_id = ? AND id = ?`,
+      [
+        req.body?.name ?? existing.name,
+        req.body?.rule_type ?? existing.rule_type,
+        req.body?.pattern ?? existing.pattern,
+        req.body?.action ?? existing.action,
+        req.body?.warning_text ?? existing.warning_text,
+        Math.max(1, Number(req.body?.threshold ?? existing.threshold ?? 1)),
+        Math.max(1, Number(req.body?.window_minutes ?? existing.window_minutes ?? 60)),
+        req.body?.enabled === undefined ? existing.enabled : (req.body.enabled ? 1 : 0),
+        req.accountId,
+        req.params.id
+      ]
+    );
+    res.json(await get("SELECT * FROM group_moderation_rules WHERE account_id = ? AND id = ?", [req.accountId, req.params.id]));
+  });
+
+  app.delete("/api/groups/moderation/rules/:id", async (req: AccountRequest, res) => {
+    await run("DELETE FROM group_moderation_rules WHERE account_id = ? AND id = ?", [req.accountId, req.params.id]);
+    res.json({ success: true });
+  });
+
+  app.get("/api/groups/moderation/events", async (req: AccountRequest, res) => {
+    const instanceId = Number(req.query.instance_id || 0);
+    const groupJid = String(req.query.group_jid || "");
+    res.json(await query(
+      "SELECT group_moderation_events.*, group_moderation_rules.name AS rule_name FROM group_moderation_events LEFT JOIN group_moderation_rules ON group_moderation_rules.id = group_moderation_events.rule_id WHERE group_moderation_events.account_id = ? AND (? = 0 OR group_moderation_events.instance_id = ?) AND (? = '' OR group_moderation_events.group_jid = ?) ORDER BY group_moderation_events.id DESC LIMIT 100",
+      [req.accountId, instanceId, instanceId, groupJid, groupJid]
+    ));
+  });
+
+  app.get("/api/groups/:jid", async (req: AccountRequest, res) => {
+    const groupJid = decodeURIComponent(req.params.jid);
+    const group = await get("SELECT * FROM whatsapp_groups WHERE account_id = ? AND group_jid = ?", [req.accountId, groupJid]);
+    if (!group) return res.status(404).json({ error: "Grupo nao encontrado" });
+    const participants = await query("SELECT * FROM whatsapp_group_participants WHERE account_id = ? AND instance_id = ? AND group_jid = ? ORDER BY is_admin DESC, name ASC, phone ASC", [req.accountId, group.instance_id, groupJid]);
+    res.json({ ...group, participants });
+  });
+
+  app.post("/api/groups/:jid/action", async (req: AccountRequest, res) => {
+    const groupJid = decodeURIComponent(req.params.jid);
+    const group = await get("SELECT * FROM whatsapp_groups WHERE account_id = ? AND group_jid = ?", [req.accountId, groupJid]);
+    if (!group) return res.status(404).json({ error: "Grupo nao encontrado" });
+    const inst = await accountInstance(Number(req.accountId), group.instance_id);
+    if (!inst) return res.status(404).json({ error: "Instancia nao encontrada" });
+    const action = String(req.body?.action || "");
+    const map: Record<string, { endpoint: string; body: any }> = {
+      name: { endpoint: "/groups/name", body: { jid: groupJid, name: req.body?.name } },
+      topic: { endpoint: "/groups/topic", body: { jid: groupJid, topic: req.body?.topic } },
+      photo: { endpoint: "/groups/photo", body: { jid: groupJid, media: publicMediaUrl(req.body?.media || req.body?.url) } },
+      invite: { endpoint: "/groups/invite", body: { jid: groupJid, action: req.body?.reset ? "reset" : "" } },
+      settings: { endpoint: "/groups/settings", body: { jid: groupJid, locked: req.body?.locked, announce: req.body?.announce } },
+      participants: { endpoint: "/groups/participants", body: { jid: groupJid, participants: req.body?.participants || [], action: req.body?.participant_action || "add" } },
+      leave: { endpoint: "/groups/leave", body: { jid: groupJid } }
+    };
+    if (!map[action]) return res.status(400).json({ error: "Acao invalida" });
+    try {
+      const result = await callAdvancedBridge(inst, map[action].endpoint, map[action].body);
+      if (action === "invite") {
+        const invite = String(bridgeResult(result) || "");
+        await run("UPDATE whatsapp_groups SET invite_link = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [invite, group.id]);
+      } else {
+        await syncWhatsappGroups(inst).catch(() => []);
+      }
+      res.json({ success: true, result: bridgeResult(result) });
+    } catch (error) {
+      res.status(502).json({ error: sanitizePublicError(error) });
+    }
+  });
+
+  app.post("/api/groups/join", async (req: AccountRequest, res) => {
+    const inst = await accountInstance(Number(req.accountId), req.body?.instance_id);
+    if (!inst) return res.status(404).json({ error: "Instancia nao encontrada" });
+    try {
+      const result = await callAdvancedBridge(inst, "/groups/join", { code: req.body?.code || req.body?.invite_link || "" });
+      await syncWhatsappGroups(inst).catch(() => []);
+      res.json({ success: true, result: bridgeResult(result) });
+    } catch (error) {
+      res.status(502).json({ error: sanitizePublicError(error) });
+    }
+  });
+
   app.get("/api/conversations", async (req: AccountRequest, res) => {
     const conversations = await query(`
       SELECT *, last_message_preview AS last_message
@@ -6068,7 +6433,18 @@ const session = await requireV1Account(req, res);
         emitInstanceWs(numericInstanceId, "message.new", { conversationId: conversation.id, message, conversation: updatedConversation });
         io.to(`instance:${numericInstanceId}`).emit("message.new", { conversationId: conversation.id, message, conversation: updatedConversation });
         emitUazSse(numericInstanceId, "messages", { message, conversation: updatedConversation });
-        await dispatchWebhook(numericInstanceId, "message.received", { message, conversation: updatedConversation }).catch(() => null);
+        await dispatchWebhook(numericInstanceId, conversation.type === "group" ? "group.message.received" : "message.received", { message, conversation: updatedConversation }).catch(() => null);
+        if (!isFromMe && conversation.type === "group") {
+          applyGroupModeration({
+            accountId: numericAccountId,
+            instanceId: numericInstanceId,
+            groupJid: chatJid,
+            participantJid: authorJid,
+            messageId: source.id,
+            contentType,
+            contentText
+          }).catch((error) => console.error("[GROUP_MODERATION_FAILED]", sanitizePublicError(error)));
+        }
         dispatchIntegrations(numericInstanceId, numericAccountId, "message.received", { message, conversation: updatedConversation }).catch(() => null);
       }
     }
