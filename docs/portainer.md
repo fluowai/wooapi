@@ -24,7 +24,7 @@ Todos estes dominios acessam o mesmo painel:
 
 Confirme estes pontos no servidor/Portainer:
 
-- A imagem `ghcr.io/woosolutionsc/wasenderbr:latest` existe e esta acessivel pelo Swarm.
+- A imagem `ghcr.io/fluowai/wooapi:latest` existe e esta acessivel pelo Swarm.
 - A rede externa do Traefik existe com o nome `consultio1`.
 - Os DNS dos tres dominios apontam para o Traefik.
 - O schema/migrations da WooAPI ja foi aplicado no Supabase.
