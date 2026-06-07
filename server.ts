@@ -1808,6 +1808,20 @@ async function startServer() {
 
   async function getChatProfile(accountId: number, instanceId: number, jid: string) {
     if (!jid || isIgnoredChatJid(jid)) return { name: "", pictureUrl: "" };
+    let groupName = "";
+    let groupPictureUrl = "";
+    if (jid.endsWith("@g.us")) {
+      try {
+        const groupData = await bridgeFetch(`/instances/${instanceId}/groups/info`, {
+          method: "POST",
+          body: JSON.stringify({ account_id: accountId, jid })
+        });
+        const groupRaw = bridgeResult(groupData);
+        const group = normalizeBridgeGroup(groupRaw, jid);
+        groupName = group.name || "";
+        groupPictureUrl = group.pictureUrl || "";
+      } catch {}
+    }
     try {
       const data = await bridgeFetch(`/instances/${instanceId}/contacts/info`, {
         method: "POST",
@@ -1840,12 +1854,13 @@ async function startServer() {
         contact?.pushName ||
         data?.name ||
         data?.subject ||
+        groupName ||
         ""
       );
-      const pictureUrl = extractPictureUrl(picture) || extractPictureUrl(result) || extractPictureUrl(data);
+      const pictureUrl = extractPictureUrl(picture) || extractPictureUrl(result) || extractPictureUrl(data) || groupPictureUrl;
       return { name, pictureUrl };
     } catch {
-      return { name: "", pictureUrl: "" };
+      return { name: groupName, pictureUrl: groupPictureUrl };
     }
   }
 
