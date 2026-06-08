@@ -922,6 +922,20 @@ async function migrate() {
         created_at TIMESTAMP DEFAULT current_timestamp,
         updated_at TIMESTAMP DEFAULT current_timestamp
       );
+      ALTER TABLE accounts ADD COLUMN IF NOT EXISTS referred_partner_id BIGINT REFERENCES partners(id) ON DELETE SET NULL;
+      ALTER TABLE accounts ADD COLUMN IF NOT EXISTS referral_code TEXT;
+      CREATE TABLE IF NOT EXISTS partner_referrals (
+        id BIGSERIAL PRIMARY KEY,
+        partner_id BIGINT REFERENCES partners(id) ON DELETE CASCADE,
+        account_id BIGINT REFERENCES accounts(id) ON DELETE CASCADE,
+        referral_code TEXT NOT NULL,
+        source TEXT DEFAULT 'signup',
+        status TEXT DEFAULT 'converted',
+        metadata_json TEXT DEFAULT '{}',
+        created_at TIMESTAMP DEFAULT current_timestamp,
+        updated_at TIMESTAMP DEFAULT current_timestamp,
+        UNIQUE(partner_id, account_id)
+      );
       CREATE TABLE IF NOT EXISTS partner_commissions (
         id BIGSERIAL PRIMARY KEY,
         partner_id BIGINT REFERENCES partners(id) ON DELETE CASCADE,
@@ -935,6 +949,8 @@ async function migrate() {
         updated_at TIMESTAMP DEFAULT current_timestamp
       );
       CREATE INDEX IF NOT EXISTS idx_external_access_account ON external_integration_account_access(account_id);
+      CREATE INDEX IF NOT EXISTS idx_partner_referrals_partner ON partner_referrals(partner_id);
+      CREATE INDEX IF NOT EXISTS idx_partner_referrals_account ON partner_referrals(account_id);
       CREATE INDEX IF NOT EXISTS idx_partner_commissions_partner ON partner_commissions(partner_id);
     `);
     return;
@@ -988,6 +1004,7 @@ async function migrate() {
     CREATE TABLE IF NOT EXISTS external_integrations (id INTEGER PRIMARY KEY AUTOINCREMENT, provider TEXT NOT NULL DEFAULT 'evolution_api', name TEXT NOT NULL, base_url TEXT NOT NULL, admin_key TEXT NOT NULL, auth_header TEXT NOT NULL DEFAULT 'apikey', auth_prefix TEXT DEFAULT '', list_instances_path TEXT NOT NULL DEFAULT '/instance/fetchInstances', create_instance_path TEXT NOT NULL DEFAULT '/instance/create', is_active INTEGER DEFAULT 1, notes TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);
     CREATE TABLE IF NOT EXISTS external_integration_account_access (id INTEGER PRIMARY KEY AUTOINCREMENT, integration_id INTEGER, account_id INTEGER, enabled INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE(integration_id, account_id));
     CREATE TABLE IF NOT EXISTS partners (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, email TEXT, phone TEXT, referral_code TEXT UNIQUE NOT NULL, commission_rate REAL DEFAULT 10, status TEXT DEFAULT 'active', notes TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);
+    CREATE TABLE IF NOT EXISTS partner_referrals (id INTEGER PRIMARY KEY AUTOINCREMENT, partner_id INTEGER, account_id INTEGER, referral_code TEXT NOT NULL, source TEXT DEFAULT 'signup', status TEXT DEFAULT 'converted', metadata_json TEXT DEFAULT '{}', created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE(partner_id, account_id));
     CREATE TABLE IF NOT EXISTS partner_commissions (id INTEGER PRIMARY KEY AUTOINCREMENT, partner_id INTEGER, account_id INTEGER, amount REAL NOT NULL DEFAULT 0, status TEXT DEFAULT 'pending', description TEXT, due_at DATETIME, paid_at DATETIME, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);
   `);
 
@@ -1047,6 +1064,7 @@ async function migrate() {
     external_integrations: { provider: "TEXT NOT NULL DEFAULT 'evolution_api'", name: "TEXT", base_url: "TEXT", admin_key: "TEXT", auth_header: "TEXT NOT NULL DEFAULT 'apikey'", auth_prefix: "TEXT DEFAULT ''", list_instances_path: "TEXT NOT NULL DEFAULT '/instance/fetchInstances'", create_instance_path: "TEXT NOT NULL DEFAULT '/instance/create'", is_active: "INTEGER DEFAULT 1", notes: "TEXT", created_at: "DATETIME", updated_at: "DATETIME" },
     external_integration_account_access: { integration_id: "INTEGER", account_id: "INTEGER", enabled: "INTEGER DEFAULT 0", created_at: "DATETIME", updated_at: "DATETIME" },
     partners: { name: "TEXT", email: "TEXT", phone: "TEXT", referral_code: "TEXT", commission_rate: "REAL DEFAULT 10", status: "TEXT DEFAULT 'active'", notes: "TEXT", created_at: "DATETIME", updated_at: "DATETIME" },
+    partner_referrals: { partner_id: "INTEGER", account_id: "INTEGER", referral_code: "TEXT", source: "TEXT DEFAULT 'signup'", status: "TEXT DEFAULT 'converted'", metadata_json: "TEXT DEFAULT '{}'", created_at: "DATETIME", updated_at: "DATETIME" },
     partner_commissions: { partner_id: "INTEGER", account_id: "INTEGER", amount: "REAL NOT NULL DEFAULT 0", status: "TEXT DEFAULT 'pending'", description: "TEXT", due_at: "DATETIME", paid_at: "DATETIME", created_at: "DATETIME", updated_at: "DATETIME" },
     accounts: {
       parent_account_id: "INTEGER",
@@ -1070,7 +1088,9 @@ async function migrate() {
       deleted_at: "DATETIME",
       created_at: "DATETIME",
       stripe_customer_id: "TEXT",
-      stripe_subscription_id: "TEXT"
+      stripe_subscription_id: "TEXT",
+      referred_partner_id: "INTEGER",
+      referral_code: "TEXT"
     },
     users: { status: "TEXT DEFAULT 'active'", created_at: "DATETIME", deleted_at: "DATETIME" },
     plans: {
@@ -1161,6 +1181,8 @@ async function migrate() {
     CREATE INDEX IF NOT EXISTS idx_traffic_decisions_instance ON traffic_decisions(instance_id);
     CREATE INDEX IF NOT EXISTS idx_traffic_decisions_created ON traffic_decisions(created_at);
     CREATE INDEX IF NOT EXISTS idx_external_access_account ON external_integration_account_access(account_id);
+    CREATE INDEX IF NOT EXISTS idx_partner_referrals_partner ON partner_referrals(partner_id);
+    CREATE INDEX IF NOT EXISTS idx_partner_referrals_account ON partner_referrals(account_id);
     CREATE INDEX IF NOT EXISTS idx_partner_commissions_partner ON partner_commissions(partner_id);
   `);
 
@@ -1552,6 +1574,26 @@ async function startServer() {
       .replace(/^-+|-+$/g, "")
       .slice(0, 24) || "parceiro";
     return `${slug}-${crypto.randomBytes(3).toString("hex")}`;
+  }
+
+  async function recordPartnerReferral(accountId: number, rawCode?: string | null, source = "signup", metadata: any = {}) {
+    const referralCode = String(rawCode || "").trim();
+    if (!accountId || !referralCode) return null;
+    const partner: any = await get("SELECT * FROM partners WHERE referral_code = ? AND status = 'active'", [referralCode]);
+    if (!partner?.id) return null;
+    await run("UPDATE accounts SET referred_partner_id = ?, referral_code = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [partner.id, referralCode, accountId]).catch(() => null);
+    const existing = await get("SELECT id FROM partner_referrals WHERE partner_id = ? AND account_id = ?", [partner.id, accountId]);
+    if (!existing) {
+      await run(
+        "INSERT INTO partner_referrals (partner_id, account_id, referral_code, source, status, metadata_json) VALUES (?, ?, ?, ?, ?, ?)",
+        [partner.id, accountId, referralCode, source, "converted", JSON.stringify(metadata || {})]
+      );
+      await run(
+        "INSERT INTO partner_commissions (partner_id, account_id, amount, status, description) VALUES (?, ?, 0, 'pending', ?)",
+        [partner.id, accountId, `Conta indicada criada: ${metadata?.email || `#${accountId}`}`]
+      ).catch(() => null);
+    }
+    return partner;
   }
 
   function normalizeLogRow(source: string, row: any) {
@@ -3190,22 +3232,26 @@ async function startServer() {
 
   app.post("/api/auth/register", async (req, res) => {
     const { companyName, name, email, password } = req.body || {};
+    const referralCode = String(req.body?.referral_code || req.body?.ref || "").trim();
     if (!companyName || !name || !email || !password) return res.status(400).json({ error: "Dados obrigatórios ausentes" });
     if (await get("SELECT id FROM users WHERE email = ?", [email])) return res.status(409).json({ error: "E-mail já cadastrado" });
 
     const defaultPlan = await get("SELECT id, max_instances, max_client_accounts FROM plans WHERE is_active = 1 AND name <> ? AND price > 0 ORDER BY price ASC, max_instances ASC LIMIT 1", ["Teste Gratis"]);
     const accountType = "client";
-    const account = await run("INSERT INTO accounts (name, plan_id, account_type, instance_quota, max_client_accounts, owner_name, owner_email) VALUES (?, ?, ?, ?, ?, ?, ?)", [companyName, defaultPlan?.id || null, accountType, defaultPlan?.max_instances || 1, defaultPlan?.max_client_accounts || 0, name, email]);
+    const partner: any = referralCode ? await get("SELECT id FROM partners WHERE referral_code = ? AND status = 'active'", [referralCode]) : null;
+    const account = await run("INSERT INTO accounts (name, plan_id, account_type, instance_quota, max_client_accounts, owner_name, owner_email, referred_partner_id, referral_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", [companyName, defaultPlan?.id || null, accountType, defaultPlan?.max_instances || 1, defaultPlan?.max_client_accounts || 0, name, email, partner?.id || null, partner?.id ? referralCode : null]);
     const role = "admin";
     await run("INSERT INTO users (account_id, name, email, password, role) VALUES (?, ?, ?, ?, ?)", [
       account.lastInsertRowid, name, email, hashPassword(password), role
     ]);
-    await audit(Number(account.lastInsertRowid), null, "account.created", { companyName, email, role });
+    if (partner?.id) await recordPartnerReferral(Number(account.lastInsertRowid), referralCode, "register", { companyName, email });
+    await audit(Number(account.lastInsertRowid), null, "account.created", { companyName, email, role, referral_code: partner?.id ? referralCode : null });
     res.json({ success: true });
   });
 
   app.post("/api/auth/trial", async (req, res) => {
     const { companyName, name, email, password } = req.body || {};
+    const referralCode = String(req.body?.referral_code || req.body?.ref || "").trim();
     if (!companyName || !name || !email || !password) return res.status(400).json({ error: "Dados obrigatorios ausentes" });
     if (String(password).length < 6) return res.status(400).json({ error: "Use uma senha com pelo menos 6 caracteres" });
     if (await get("SELECT id FROM users WHERE email = ?", [email])) return res.status(409).json({ error: "E-mail ja cadastrado" });
@@ -3214,8 +3260,9 @@ async function startServer() {
     if (!trialPlan?.id) return res.status(503).json({ error: "Plano de teste indisponivel" });
 
     const trialEndsAt = new Date(Date.now() + TRIAL_TEST_HOURS * 60 * 60 * 1000).toISOString();
+    const partner: any = referralCode ? await get("SELECT id FROM partners WHERE referral_code = ? AND status = 'active'", [referralCode]) : null;
     const account = await run(
-      "INSERT INTO accounts (name, plan_id, account_type, instance_quota, max_client_accounts, owner_name, owner_email, email, status, billing_status, trial_ends_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO accounts (name, plan_id, account_type, instance_quota, max_client_accounts, owner_name, owner_email, email, status, billing_status, trial_ends_at, referred_partner_id, referral_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       [
         companyName,
         trialPlan.id,
@@ -3227,7 +3274,9 @@ async function startServer() {
         email,
         "trial",
         "trial",
-        trialEndsAt
+        trialEndsAt,
+        partner?.id || null,
+        partner?.id ? referralCode : null
       ]
     );
     const accountId = Number(account.lastInsertRowid);
@@ -3235,9 +3284,11 @@ async function startServer() {
       "INSERT INTO users (account_id, name, email, password, role) VALUES (?, ?, ?, ?, 'admin')",
       [accountId, name, email, hashPassword(password)]
     );
+    if (partner?.id) await recordPartnerReferral(accountId, referralCode, "trial", { companyName, email });
     await audit(accountId, null, "trial.account.created", {
       companyName,
       email,
+      referral_code: partner?.id ? referralCode : null,
       trial_hours: TRIAL_TEST_HOURS,
       trial_ends_at: trialEndsAt,
       auto_delete: true
@@ -4080,7 +4131,8 @@ async function startServer() {
              COALESCE(commissions.total_amount, 0) AS total_commissions,
              COALESCE(commissions.pending_amount, 0) AS pending_commissions,
              COALESCE(commissions.paid_amount, 0) AS paid_commissions,
-             COALESCE(commissions.total_count, 0) AS commission_count
+             COALESCE(commissions.total_count, 0) AS commission_count,
+             COALESCE(referrals.total_count, 0) AS referral_count
       FROM partners
       LEFT JOIN (
         SELECT partner_id,
@@ -4091,6 +4143,11 @@ async function startServer() {
         FROM partner_commissions
         GROUP BY partner_id
       ) commissions ON commissions.partner_id = partners.id
+      LEFT JOIN (
+        SELECT partner_id, COUNT(*) AS total_count
+        FROM partner_referrals
+        GROUP BY partner_id
+      ) referrals ON referrals.partner_id = partners.id
       ORDER BY partners.created_at DESC
     `);
     return publicSuccess(res, rows.map((row: any) => ({ ...row, referral_link: partnerReferralLink(row.referral_code) })));
@@ -4135,6 +4192,37 @@ async function startServer() {
     ]);
     await audit(null, Number(req.user?.userId || 0) || null, "admin.partner.updated", { id: req.params.id });
     return publicSuccess(res, await get("SELECT * FROM partners WHERE id = ?", [req.params.id]));
+  });
+
+  app.get("/api/admin/partners/:id/referrals", async (req: AccountRequest, res) => {
+    const rows = await query(`
+      SELECT partner_referrals.*,
+             accounts.name AS account_name,
+             accounts.owner_name,
+             accounts.owner_email,
+             accounts.status AS account_status,
+             accounts.created_at AS account_created_at
+      FROM partner_referrals
+      LEFT JOIN accounts ON accounts.id = partner_referrals.account_id
+      WHERE partner_referrals.partner_id = ?
+      ORDER BY partner_referrals.created_at DESC
+    `, [req.params.id]);
+    return publicSuccess(res, rows.map((row: any) => ({ ...row, metadata: parseJsonObject(row.metadata_json) })));
+  });
+
+  app.post("/api/admin/partners/:id/referrals", async (req: AccountRequest, res) => {
+    const partner: any = await get("SELECT * FROM partners WHERE id = ?", [req.params.id]);
+    if (!partner) return publicError(res, 404, "NOT_FOUND", "Parceiro nao encontrado");
+    const accountId = Number(req.body?.account_id || req.body?.accountId || 0);
+    const account: any = accountId ? await get("SELECT id, name, owner_email FROM accounts WHERE id = ? AND deleted_at IS NULL", [accountId]) : null;
+    if (!account) return publicError(res, 404, "NOT_FOUND", "Cliente nao encontrado");
+    await recordPartnerReferral(accountId, partner.referral_code, "manual_admin", {
+      linked_by: req.user?.userId || null,
+      account_name: account.name,
+      email: account.owner_email
+    });
+    await audit(accountId, Number(req.user?.userId || 0) || null, "admin.partner_referral.linked", { partnerId: partner.id, referralCode: partner.referral_code });
+    return publicSuccess(res, { partner_id: Number(partner.id), account_id: accountId }, "Indicacao vinculada");
   });
 
   app.get("/api/admin/partners/:id/commissions", async (req: AccountRequest, res) => {
