@@ -248,6 +248,18 @@ async function sendMessage(job: Job<MessageSendJob>) {
   } catch (error) {
     const latencyMs = Date.now() - started;
     const message = sanitizePublicError(error);
+    const attempts = Math.max(1, Number(job.opts.attempts || 1));
+    const isFinalAttempt = job.attemptsMade + 1 >= attempts;
+    if (!isFinalAttempt) {
+      await logMessage(data.accountId, data.instanceId, data.pendingMessageId || `retry_${Date.now()}`, "outbound", "retrying", {
+        error: message,
+        attempt: job.attemptsMade + 1,
+        attempts,
+        latencyMs,
+        jid: data.jid
+      });
+      throw error;
+    }
     if (data.messageDbId) {
       await run("UPDATE messages SET delivery_status = ? WHERE id = ?", ["failed", data.messageDbId]);
     }

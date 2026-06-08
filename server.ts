@@ -4759,6 +4759,12 @@ async function startServer() {
     ) || requested;
   }
 
+  function wantsAsyncSend(req: express.Request) {
+    const value = req.body?.async ?? req.body?.async_send ?? req.body?.send_async ?? req.query?.async;
+    const mode = String(req.body?.mode || req.body?.send_mode || req.query?.mode || "").toLowerCase();
+    return value === true || value === 1 || String(value).toLowerCase() === "true" || ["async", "queued", "queue"].includes(mode);
+  }
+
   async function handleSend(req: AccountRequest, res: express.Response, publicAccountId?: number, options: { allowConnectedFallback?: boolean } = {}) {
     let pendingMessageDbId: number | null = null;
     let pendingMessageId: string | null = null;
@@ -4795,12 +4801,52 @@ async function startServer() {
       pendingInstanceId = sendInstanceId;
       const info = await run(
         "INSERT INTO messages (account_id, instance_id, conversation_id, direction, chat_type, content_type, content_text, message_id, delivery_status, from_me, sender) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        [accountId, sendInstanceId, conversation?.id, "outbound", conversation?.type || "contact", normalizedContentType, content, pendingId, "pending", 1, "human"]
+        [accountId, sendInstanceId, conversation?.id, "outbound", conversation?.type || "contact", normalizedContentType, content, pendingId, "pending", 1, req.path.startsWith("/api/") ? "api" : "human"]
       );
       pendingMessageDbId = Number(info.lastInsertRowid);
       const savedPending = await get("SELECT * FROM messages WHERE id = ?", [info.lastInsertRowid]);
       await logMessage(accountId, sendInstanceId, pendingId, "outbound", "pending", { conversationId: conversation?.id });
       io.to(`account:${accountId}`).emit("message.new", { conversationId: conversation?.id, message: savedPending, conversation });
+
+      if (wantsAsyncSend(req)) {
+        if (QUEUE_DRIVER !== "bullmq") {
+          const error: any = new Error("Envio assincrono requer QUEUE_DRIVER=bullmq e Redis ativo.");
+          error.statusCode = 503;
+          error.code = "QUEUE_UNAVAILABLE";
+          throw error;
+        }
+        await run(
+          "UPDATE conversations SET last_message_preview = ?, last_message_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+          [outboundMediaUrl ? mediaPreview(normalizedContentType, content) : content, conversation?.id]
+        );
+        const job = await messageSendQueue.add("api-message", {
+          accountId,
+          instanceId: sendInstanceId,
+          jid: targetJid,
+          text: outboundMediaUrl ? (text || message || "") : content,
+          mediaUrl: outboundMediaUrl || undefined,
+          caption: outboundMediaUrl ? (text || message || "") : undefined,
+          mimeType: mimeType || mime_type || "",
+          fileName: fileName || file_name || "",
+          type: outboundMediaUrl ? normalizedContentType : undefined,
+          conversationId: conversation?.id,
+          pendingMessageId: pendingId,
+          messageDbId: Number(info.lastInsertRowid),
+          priority: 2
+        }, {
+          jobId: `api-message-${info.lastInsertRowid}-${Date.now()}`
+        });
+        const payload = {
+          queued: true,
+          jobId: String(job.id),
+          pendingMessageId: pendingId,
+          message: savedPending
+        };
+        if (req.path.startsWith("/api/v1/")) {
+          return res.status(202).json({ success: true, message: "Mensagem enfileirada para envio", data: payload });
+        }
+        return res.status(202).json({ success: true, ...payload });
+      }
 
       const result = outboundMediaUrl
         ? await sendWhatsAppMedia(sendInstanceId, accountId, targetJid, {
@@ -5847,42 +5893,16 @@ const session = await requireV1Account(req, res);
   app.post("/api/v1/instances/:id/send-media", criticalEndpointRateLimit, perInstanceRateLimit, async (req, res) => {
     const inst = await requireInstanceApiKey(req, res);
     if (!inst) return;
-    const { jid, number, mediaUrl, media_url, caption, mimeType, mime_type, fileName, file_name, type } = req.body || {};
-    const targetJid = resolveTargetJid(jid || number);
-    const url = mediaUrl || media_url;
-    if (!targetJid) return publicError(res, 400, "VALIDATION_ERROR", "Destinatário inválido");
-    if (!url) return publicError(res, 400, "VALIDATION_ERROR", "mediaUrl obrigatório");
-    try {
-      const result = await sendWhatsAppMedia(Number(inst.id), Number(inst.account_id), targetJid, {
-        mediaUrl: url,
-        caption: caption || "",
-        mimeType: mimeType || mime_type || "",
-        fileName: fileName || file_name || "",
-        type: type || ""
-      });
-      const providerMessageId = result?.ID || result?.id || result?.messageID || `media_${Date.now()}`;
-      const contentType = normalizeOutgoingMediaType(type, mimeType || mime_type);
-      const { message, conversation } = await persistOutboundMessage({
-        accountId: Number(inst.account_id),
-        instanceId: Number(inst.id),
-        jid: targetJid,
-        messageId: providerMessageId,
-        contentType,
-        contentText: url,
-        sender: "api",
-        raw: {
-          caption: caption || "",
-          mimeType: mimeType || mime_type || "",
-          fileName: fileName || file_name || "",
-          requestedType: type || ""
-        }
-      });
-      await logMessage(Number(inst.account_id), Number(inst.id), providerMessageId, "outbound", "sent", { contentType, mediaUrl: url });
-      await dispatchWebhook(Number(inst.id), "message.sent", { message, conversation }).catch(() => null);
-      return publicSuccess(res, { providerMessageId }, "Mídia enviada com sucesso");
-    } catch (error) {
-      return publicError(res, 500, "SEND_MEDIA_FAILED", sanitizePublicError(error));
-    }
+    const requestedMediaUrl = req.body?.mediaUrl || req.body?.media_url || req.body?.url || req.body?.link;
+    if (!requestedMediaUrl) return publicError(res, 400, "VALIDATION_ERROR", "mediaUrl obrigatorio");
+    req.body = {
+      ...req.body,
+      instanceId: inst.id,
+      mediaUrl: requestedMediaUrl,
+      text: req.body?.caption || req.body?.text || req.body?.message || "",
+      contentType: req.body?.type || req.body?.contentType || "document"
+    };
+    return handleSend(req, res, inst.account_id);
   });
 
   app.post("/api/v1/instances/:id/send-buttons", criticalEndpointRateLimit, perInstanceRateLimit, async (req, res) => {

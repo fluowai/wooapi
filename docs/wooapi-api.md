@@ -210,6 +210,16 @@ curl -X POST http://localhost:3002/api/v1/instances/17/send-text \
   }'
 ```
 
+Para enviar de forma assíncrona, informe `async: true` ou `mode: "async"`. A API retorna `202` quando a mensagem entra na fila; o resultado final chega por webhook `message.sent` ou `message.failed`.
+
+```json
+{
+  "number": "5548999999999",
+  "text": "Ola pela WooAPI",
+  "async": true
+}
+```
+
 ### Enviar midia
 
 ```bash
@@ -218,10 +228,11 @@ curl -X POST http://localhost:3002/api/v1/instances/17/send-media \
   -H "Content-Type: application/json" \
   -d '{
     "number": "5548999999999",
-    "url": "https://example.com/arquivo.pdf",
+    "mediaUrl": "https://example.com/arquivo.pdf",
     "caption": "Arquivo enviado pela WooAPI",
     "mime_type": "application/pdf",
-    "file_name": "arquivo.pdf"
+    "file_name": "arquivo.pdf",
+    "async": true
   }'
 ```
 
