@@ -885,6 +885,58 @@ async function deliverWebhookEvent(eventId: number) {
 async function migrate() {
   if (isPostgres()) {
     await runMigrations();
+    await exec(`
+      CREATE TABLE IF NOT EXISTS external_integrations (
+        id BIGSERIAL PRIMARY KEY,
+        provider TEXT NOT NULL DEFAULT 'evolution_api',
+        name TEXT NOT NULL,
+        base_url TEXT NOT NULL,
+        admin_key TEXT NOT NULL,
+        auth_header TEXT NOT NULL DEFAULT 'apikey',
+        auth_prefix TEXT DEFAULT '',
+        list_instances_path TEXT NOT NULL DEFAULT '/instance/fetchInstances',
+        create_instance_path TEXT NOT NULL DEFAULT '/instance/create',
+        is_active INTEGER DEFAULT 1,
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT current_timestamp,
+        updated_at TIMESTAMP DEFAULT current_timestamp
+      );
+      CREATE TABLE IF NOT EXISTS external_integration_account_access (
+        id BIGSERIAL PRIMARY KEY,
+        integration_id BIGINT REFERENCES external_integrations(id) ON DELETE CASCADE,
+        account_id BIGINT REFERENCES accounts(id) ON DELETE CASCADE,
+        enabled INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT current_timestamp,
+        updated_at TIMESTAMP DEFAULT current_timestamp,
+        UNIQUE(integration_id, account_id)
+      );
+      CREATE TABLE IF NOT EXISTS partners (
+        id BIGSERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        email TEXT,
+        phone TEXT,
+        referral_code TEXT UNIQUE NOT NULL,
+        commission_rate REAL DEFAULT 10,
+        status TEXT DEFAULT 'active',
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT current_timestamp,
+        updated_at TIMESTAMP DEFAULT current_timestamp
+      );
+      CREATE TABLE IF NOT EXISTS partner_commissions (
+        id BIGSERIAL PRIMARY KEY,
+        partner_id BIGINT REFERENCES partners(id) ON DELETE CASCADE,
+        account_id BIGINT REFERENCES accounts(id) ON DELETE SET NULL,
+        amount REAL NOT NULL DEFAULT 0,
+        status TEXT DEFAULT 'pending',
+        description TEXT,
+        due_at TIMESTAMP,
+        paid_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT current_timestamp,
+        updated_at TIMESTAMP DEFAULT current_timestamp
+      );
+      CREATE INDEX IF NOT EXISTS idx_external_access_account ON external_integration_account_access(account_id);
+      CREATE INDEX IF NOT EXISTS idx_partner_commissions_partner ON partner_commissions(partner_id);
+    `);
     return;
   }
 
@@ -933,6 +985,10 @@ async function migrate() {
     CREATE TABLE IF NOT EXISTS reputation_scores (id INTEGER PRIMARY KEY AUTOINCREMENT, scope TEXT, subject_id TEXT, score INTEGER DEFAULT 100, metadata_json TEXT DEFAULT '{}', created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE(scope, subject_id));
     CREATE TABLE IF NOT EXISTS traffic_buckets (id INTEGER PRIMARY KEY AUTOINCREMENT, bucket_key TEXT UNIQUE, count INTEGER DEFAULT 0, reset_at DATETIME, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);
     CREATE TABLE IF NOT EXISTS traffic_decisions (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER, instance_id INTEGER, node_id TEXT, decision TEXT, reason TEXT, delay_ms INTEGER DEFAULT 0, score INTEGER, metadata_json TEXT DEFAULT '{}', created_at DATETIME DEFAULT CURRENT_TIMESTAMP);
+    CREATE TABLE IF NOT EXISTS external_integrations (id INTEGER PRIMARY KEY AUTOINCREMENT, provider TEXT NOT NULL DEFAULT 'evolution_api', name TEXT NOT NULL, base_url TEXT NOT NULL, admin_key TEXT NOT NULL, auth_header TEXT NOT NULL DEFAULT 'apikey', auth_prefix TEXT DEFAULT '', list_instances_path TEXT NOT NULL DEFAULT '/instance/fetchInstances', create_instance_path TEXT NOT NULL DEFAULT '/instance/create', is_active INTEGER DEFAULT 1, notes TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);
+    CREATE TABLE IF NOT EXISTS external_integration_account_access (id INTEGER PRIMARY KEY AUTOINCREMENT, integration_id INTEGER, account_id INTEGER, enabled INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE(integration_id, account_id));
+    CREATE TABLE IF NOT EXISTS partners (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, email TEXT, phone TEXT, referral_code TEXT UNIQUE NOT NULL, commission_rate REAL DEFAULT 10, status TEXT DEFAULT 'active', notes TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);
+    CREATE TABLE IF NOT EXISTS partner_commissions (id INTEGER PRIMARY KEY AUTOINCREMENT, partner_id INTEGER, account_id INTEGER, amount REAL NOT NULL DEFAULT 0, status TEXT DEFAULT 'pending', description TEXT, due_at DATETIME, paid_at DATETIME, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);
   `);
 
   const requiredColumns: Record<string, Record<string, string>> = {
@@ -988,6 +1044,10 @@ async function migrate() {
     support_tickets: { account_id: "INTEGER", instance_id: "INTEGER", alert_id: "INTEGER", subject: "TEXT", status: "TEXT DEFAULT 'open'", priority: "TEXT DEFAULT 'normal'", source: "TEXT DEFAULT 'support_chat'", assigned_to: "TEXT", ai_summary: "TEXT", ai_resolution: "TEXT", created_at: "DATETIME", updated_at: "DATETIME", escalated_at: "DATETIME", resolved_at: "DATETIME" },
     support_ticket_messages: { ticket_id: "INTEGER", account_id: "INTEGER", user_id: "INTEGER", sender: "TEXT", message: "TEXT", metadata: "TEXT DEFAULT '{}'", created_at: "DATETIME" },
     support_ai_actions: { account_id: "INTEGER", instance_id: "INTEGER", ticket_id: "INTEGER", alert_id: "INTEGER", action: "TEXT", status: "TEXT DEFAULT 'completed'", details_json: "TEXT DEFAULT '{}'", created_at: "DATETIME" },
+    external_integrations: { provider: "TEXT NOT NULL DEFAULT 'evolution_api'", name: "TEXT", base_url: "TEXT", admin_key: "TEXT", auth_header: "TEXT NOT NULL DEFAULT 'apikey'", auth_prefix: "TEXT DEFAULT ''", list_instances_path: "TEXT NOT NULL DEFAULT '/instance/fetchInstances'", create_instance_path: "TEXT NOT NULL DEFAULT '/instance/create'", is_active: "INTEGER DEFAULT 1", notes: "TEXT", created_at: "DATETIME", updated_at: "DATETIME" },
+    external_integration_account_access: { integration_id: "INTEGER", account_id: "INTEGER", enabled: "INTEGER DEFAULT 0", created_at: "DATETIME", updated_at: "DATETIME" },
+    partners: { name: "TEXT", email: "TEXT", phone: "TEXT", referral_code: "TEXT", commission_rate: "REAL DEFAULT 10", status: "TEXT DEFAULT 'active'", notes: "TEXT", created_at: "DATETIME", updated_at: "DATETIME" },
+    partner_commissions: { partner_id: "INTEGER", account_id: "INTEGER", amount: "REAL NOT NULL DEFAULT 0", status: "TEXT DEFAULT 'pending'", description: "TEXT", due_at: "DATETIME", paid_at: "DATETIME", created_at: "DATETIME", updated_at: "DATETIME" },
     accounts: {
       parent_account_id: "INTEGER",
       account_type: "TEXT DEFAULT 'client'",
@@ -1100,6 +1160,8 @@ async function migrate() {
     CREATE INDEX IF NOT EXISTS idx_reputation_scores_scope ON reputation_scores(scope, score);
     CREATE INDEX IF NOT EXISTS idx_traffic_decisions_instance ON traffic_decisions(instance_id);
     CREATE INDEX IF NOT EXISTS idx_traffic_decisions_created ON traffic_decisions(created_at);
+    CREATE INDEX IF NOT EXISTS idx_external_access_account ON external_integration_account_access(account_id);
+    CREATE INDEX IF NOT EXISTS idx_partner_commissions_partner ON partner_commissions(partner_id);
   `);
 
   const ensurePlan = async (
@@ -1411,6 +1473,12 @@ async function startServer() {
   app.get("/terms", async (_req, res) => res.type("text/markdown").sendFile(path.resolve("docs/terms.md")));
   app.get("/postman/wooapi.postman_collection.json", async (_req, res) => res.sendFile(path.resolve("docs/wooapi.postman_collection.json")));
   app.get("/openapi.json", async (_req, res) => res.sendFile(path.resolve("docs/openapi.json")));
+  app.get("/r/:code", async (req, res) => {
+    const code = String(req.params.code || "").trim();
+    const partner = code ? await get("SELECT id FROM partners WHERE referral_code = ? AND status = 'active'", [code]).catch(() => null) : null;
+    const target = partner ? `/?ref=${encodeURIComponent(code)}` : "/";
+    return res.redirect(target);
+  });
   app.get("/docs", async (_req, res) => res.type("html").send(`<!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>WooAPI - OpenAPI</title><link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css"></head>
@@ -1426,6 +1494,64 @@ async function startServer() {
 
   function publicError(res: express.Response, status: number, code: string, message: string, details: any = {}) {
     return res.status(status).json({ success: false, code, message, details });
+  }
+
+  function maskSecret(value?: string | null) {
+    const raw = String(value || "");
+    if (!raw) return "";
+    if (raw.length <= 8) return "********";
+    return `${raw.slice(0, 4)}...${raw.slice(-4)}`;
+  }
+
+  function normalizeExternalPath(pathValue?: string | null, fallback = "/") {
+    const value = String(pathValue || fallback).trim();
+    return value.startsWith("/") ? value : `/${value}`;
+  }
+
+  function buildExternalUrl(baseUrl: string, pathValue: string) {
+    return `${String(baseUrl || "").replace(/\/+$/, "")}${normalizeExternalPath(pathValue)}`;
+  }
+
+  async function externalIntegrationRequest(integration: any, pathValue: string, options: any = {}) {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      [String(integration.auth_header || "apikey")]: `${integration.auth_prefix || ""}${integration.admin_key}`
+    };
+    const response = await fetch(buildExternalUrl(integration.base_url, pathValue), {
+      method: options.method || "GET",
+      headers,
+      body: options.body === undefined ? undefined : JSON.stringify(options.body)
+    });
+    const text = await response.text();
+    let data: any = text;
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch {
+      data = { raw: text.slice(0, 1000) };
+    }
+    if (!response.ok) {
+      const message = data?.message || data?.error || `Sistema externo respondeu HTTP ${response.status}`;
+      const error: any = new Error(String(message));
+      error.status = response.status;
+      error.data = data;
+      throw error;
+    }
+    return data;
+  }
+
+  function partnerReferralLink(code: string) {
+    return `${APP_URL.replace(/\/+$/, "")}/r/${encodeURIComponent(code)}`;
+  }
+
+  function referralCodeFromName(name: string) {
+    const slug = String(name || "parceiro")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 24) || "parceiro";
+    return `${slug}-${crypto.randomBytes(3).toString("hex")}`;
   }
 
   function normalizeLogRow(source: string, row: any) {
@@ -3820,6 +3946,247 @@ async function startServer() {
     copyIfExists(path.join(dir, "media-cache"), bridgeMediaPath);
     await audit(null, Number(req.user?.userId || 0) || null, "admin.backup.restored", { id });
     return publicSuccess(res, { id }, "Backup restaurado. Reinicie os servicos para aplicar tudo.");
+  });
+
+  app.get("/api/admin/external-integrations", async (_req: AccountRequest, res) => {
+    const rows = await query(`
+      SELECT external_integrations.*,
+             COALESCE(access_counts.total, 0) AS allowed_accounts
+      FROM external_integrations
+      LEFT JOIN (
+        SELECT integration_id, COUNT(*) AS total
+        FROM external_integration_account_access
+        WHERE enabled = 1
+        GROUP BY integration_id
+      ) access_counts ON access_counts.integration_id = external_integrations.id
+      ORDER BY external_integrations.created_at DESC
+    `);
+    return publicSuccess(res, rows.map((row: any) => ({
+      ...row,
+      admin_key_masked: maskSecret(row.admin_key),
+      admin_key: undefined,
+      is_active: Number(row.is_active ?? 1) === 1
+    })));
+  });
+
+  app.post("/api/admin/external-integrations", async (req: AccountRequest, res) => {
+    const name = String(req.body?.name || "").trim();
+    const baseUrl = String(req.body?.base_url || req.body?.baseUrl || "").trim();
+    const adminKey = String(req.body?.admin_key || req.body?.adminKey || "").trim();
+    if (!name || !baseUrl || !adminKey) return publicError(res, 400, "VALIDATION_ERROR", "Nome, URL base e chave admin sao obrigatorios");
+    const info = await run(`
+      INSERT INTO external_integrations (provider, name, base_url, admin_key, auth_header, auth_prefix, list_instances_path, create_instance_path, is_active, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      String(req.body?.provider || "evolution_api"),
+      name,
+      baseUrl,
+      adminKey,
+      String(req.body?.auth_header || "apikey"),
+      String(req.body?.auth_prefix || ""),
+      normalizeExternalPath(req.body?.list_instances_path, "/instance/fetchInstances"),
+      normalizeExternalPath(req.body?.create_instance_path, "/instance/create"),
+      req.body?.is_active === false ? 0 : 1,
+      String(req.body?.notes || "")
+    ]);
+    await audit(null, Number(req.user?.userId || 0) || null, "admin.external_integration.created", { id: info.lastInsertRowid, name });
+    return publicSuccess(res, { id: info.lastInsertRowid }, "Integracao externa criada");
+  });
+
+  app.patch("/api/admin/external-integrations/:id", async (req: AccountRequest, res) => {
+    const current: any = await get("SELECT * FROM external_integrations WHERE id = ?", [req.params.id]);
+    if (!current) return publicError(res, 404, "NOT_FOUND", "Integracao externa nao encontrada");
+    const next = { ...current, ...req.body };
+    await run(`
+      UPDATE external_integrations
+      SET provider = ?, name = ?, base_url = ?, admin_key = ?, auth_header = ?, auth_prefix = ?, list_instances_path = ?, create_instance_path = ?, is_active = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `, [
+      String(next.provider || "evolution_api"),
+      String(next.name || current.name),
+      String(next.base_url || next.baseUrl || current.base_url),
+      req.body?.admin_key || req.body?.adminKey ? String(req.body?.admin_key || req.body?.adminKey) : current.admin_key,
+      String(next.auth_header || "apikey"),
+      String(next.auth_prefix || ""),
+      normalizeExternalPath(next.list_instances_path, "/instance/fetchInstances"),
+      normalizeExternalPath(next.create_instance_path, "/instance/create"),
+      next.is_active === false || Number(next.is_active) === 0 ? 0 : 1,
+      String(next.notes || ""),
+      req.params.id
+    ]);
+    await audit(null, Number(req.user?.userId || 0) || null, "admin.external_integration.updated", { id: req.params.id });
+    return publicSuccess(res, { id: Number(req.params.id) }, "Integracao externa atualizada");
+  });
+
+  app.get("/api/admin/external-integrations/:id/accounts", async (req: AccountRequest, res) => {
+    const rows = await query(`
+      SELECT accounts.id, accounts.name, accounts.owner_email, accounts.account_type, accounts.status,
+             COALESCE(access.enabled, 0) AS enabled
+      FROM accounts
+      LEFT JOIN external_integration_account_access access
+        ON access.account_id = accounts.id AND access.integration_id = ?
+      WHERE accounts.deleted_at IS NULL
+      ORDER BY accounts.name ASC
+    `, [req.params.id]);
+    return publicSuccess(res, rows.map((row: any) => ({ ...row, enabled: Number(row.enabled || 0) === 1 })));
+  });
+
+  app.patch("/api/admin/external-integrations/:id/accounts/:accountId", async (req: AccountRequest, res) => {
+    const integration = await get("SELECT id FROM external_integrations WHERE id = ?", [req.params.id]);
+    const account = await get("SELECT id FROM accounts WHERE id = ? AND deleted_at IS NULL", [req.params.accountId]);
+    if (!integration || !account) return publicError(res, 404, "NOT_FOUND", "Integracao ou cliente nao encontrado");
+    const enabled = req.body?.enabled === false || Number(req.body?.enabled) === 0 ? 0 : 1;
+    const current = await get("SELECT id FROM external_integration_account_access WHERE integration_id = ? AND account_id = ?", [req.params.id, req.params.accountId]);
+    if (current) {
+      await run("UPDATE external_integration_account_access SET enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [enabled, (current as any).id]);
+    } else {
+      await run("INSERT INTO external_integration_account_access (integration_id, account_id, enabled) VALUES (?, ?, ?)", [req.params.id, req.params.accountId, enabled]);
+    }
+    await audit(Number(req.params.accountId), Number(req.user?.userId || 0) || null, "admin.external_integration.account_access", { integrationId: req.params.id, enabled });
+    return publicSuccess(res, { integration_id: Number(req.params.id), account_id: Number(req.params.accountId), enabled: Boolean(enabled) });
+  });
+
+  app.post("/api/admin/external-integrations/:id/list-instances", async (req: AccountRequest, res) => {
+    const integration = await get("SELECT * FROM external_integrations WHERE id = ? AND is_active = 1", [req.params.id]);
+    if (!integration) return publicError(res, 404, "NOT_FOUND", "Integracao externa ativa nao encontrada");
+    try {
+      const data = await externalIntegrationRequest(integration, (integration as any).list_instances_path, { method: "GET" });
+      await audit(null, Number(req.user?.userId || 0) || null, "admin.external_integration.instances_listed", { integrationId: req.params.id });
+      return publicSuccess(res, data);
+    } catch (error: any) {
+      return publicError(res, 502, "EXTERNAL_SYSTEM_ERROR", sanitizePublicError(error), { status: error?.status });
+    }
+  });
+
+  app.post("/api/admin/external-integrations/:id/create-instance", async (req: AccountRequest, res) => {
+    const integration = await get("SELECT * FROM external_integrations WHERE id = ? AND is_active = 1", [req.params.id]);
+    if (!integration) return publicError(res, 404, "NOT_FOUND", "Integracao externa ativa nao encontrada");
+    const instanceName = String(req.body?.instanceName || req.body?.instance_name || req.body?.name || "").trim();
+    if (!instanceName) return publicError(res, 400, "VALIDATION_ERROR", "Nome da instancia obrigatorio");
+    const payload = { ...req.body, instanceName };
+    delete payload.instance_name;
+    try {
+      const data = await externalIntegrationRequest(integration, (integration as any).create_instance_path, { method: "POST", body: payload });
+      await audit(null, Number(req.user?.userId || 0) || null, "admin.external_integration.instance_created", { integrationId: req.params.id, instanceName });
+      return publicSuccess(res, data, "Instancia solicitada no sistema externo");
+    } catch (error: any) {
+      return publicError(res, 502, "EXTERNAL_SYSTEM_ERROR", sanitizePublicError(error), { status: error?.status });
+    }
+  });
+
+  app.get("/api/admin/partners", async (_req: AccountRequest, res) => {
+    const rows = await query(`
+      SELECT partners.*,
+             COALESCE(commissions.total_amount, 0) AS total_commissions,
+             COALESCE(commissions.pending_amount, 0) AS pending_commissions,
+             COALESCE(commissions.paid_amount, 0) AS paid_commissions,
+             COALESCE(commissions.total_count, 0) AS commission_count
+      FROM partners
+      LEFT JOIN (
+        SELECT partner_id,
+               SUM(amount) AS total_amount,
+               SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END) AS pending_amount,
+               SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END) AS paid_amount,
+               COUNT(*) AS total_count
+        FROM partner_commissions
+        GROUP BY partner_id
+      ) commissions ON commissions.partner_id = partners.id
+      ORDER BY partners.created_at DESC
+    `);
+    return publicSuccess(res, rows.map((row: any) => ({ ...row, referral_link: partnerReferralLink(row.referral_code) })));
+  });
+
+  app.post("/api/admin/partners", async (req: AccountRequest, res) => {
+    const name = String(req.body?.name || "").trim();
+    if (!name) return publicError(res, 400, "VALIDATION_ERROR", "Nome do parceiro obrigatorio");
+    const referralCode = String(req.body?.referral_code || "").trim() || referralCodeFromName(name);
+    const info = await run(`
+      INSERT INTO partners (name, email, phone, referral_code, commission_rate, status, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `, [
+      name,
+      String(req.body?.email || ""),
+      String(req.body?.phone || ""),
+      referralCode,
+      Number(req.body?.commission_rate || 10),
+      String(req.body?.status || "active"),
+      String(req.body?.notes || "")
+    ]);
+    await audit(null, Number(req.user?.userId || 0) || null, "admin.partner.created", { id: info.lastInsertRowid, referralCode });
+    return publicSuccess(res, { id: info.lastInsertRowid, referral_code: referralCode, referral_link: partnerReferralLink(referralCode) }, "Parceiro criado");
+  });
+
+  app.patch("/api/admin/partners/:id", async (req: AccountRequest, res) => {
+    const current: any = await get("SELECT * FROM partners WHERE id = ?", [req.params.id]);
+    if (!current) return publicError(res, 404, "NOT_FOUND", "Parceiro nao encontrado");
+    const next = { ...current, ...req.body };
+    await run(`
+      UPDATE partners
+      SET name = ?, email = ?, phone = ?, commission_rate = ?, status = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `, [
+      String(next.name || current.name),
+      String(next.email || ""),
+      String(next.phone || ""),
+      Number(next.commission_rate || 0),
+      String(next.status || "active"),
+      String(next.notes || ""),
+      req.params.id
+    ]);
+    await audit(null, Number(req.user?.userId || 0) || null, "admin.partner.updated", { id: req.params.id });
+    return publicSuccess(res, await get("SELECT * FROM partners WHERE id = ?", [req.params.id]));
+  });
+
+  app.get("/api/admin/partners/:id/commissions", async (req: AccountRequest, res) => {
+    const rows = await query(`
+      SELECT partner_commissions.*, accounts.name AS account_name, accounts.owner_email
+      FROM partner_commissions
+      LEFT JOIN accounts ON accounts.id = partner_commissions.account_id
+      WHERE partner_commissions.partner_id = ?
+      ORDER BY partner_commissions.created_at DESC
+    `, [req.params.id]);
+    return publicSuccess(res, rows);
+  });
+
+  app.post("/api/admin/partners/:id/commissions", async (req: AccountRequest, res) => {
+    const partner = await get("SELECT id FROM partners WHERE id = ?", [req.params.id]);
+    if (!partner) return publicError(res, 404, "NOT_FOUND", "Parceiro nao encontrado");
+    const amount = Number(req.body?.amount || 0);
+    if (amount <= 0) return publicError(res, 400, "VALIDATION_ERROR", "Valor da comissao deve ser maior que zero");
+    const info = await run(`
+      INSERT INTO partner_commissions (partner_id, account_id, amount, status, description, due_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `, [
+      req.params.id,
+      req.body?.account_id || null,
+      amount,
+      String(req.body?.status || "pending"),
+      String(req.body?.description || ""),
+      req.body?.due_at || null
+    ]);
+    await audit(null, Number(req.user?.userId || 0) || null, "admin.partner_commission.created", { partnerId: req.params.id, id: info.lastInsertRowid, amount });
+    return publicSuccess(res, { id: info.lastInsertRowid }, "Comissao registrada");
+  });
+
+  app.patch("/api/admin/partner-commissions/:id", async (req: AccountRequest, res) => {
+    const current: any = await get("SELECT * FROM partner_commissions WHERE id = ?", [req.params.id]);
+    if (!current) return publicError(res, 404, "NOT_FOUND", "Comissao nao encontrada");
+    const status = String(req.body?.status || current.status);
+    const paidAt = status === "paid" ? (req.body?.paid_at || new Date().toISOString()) : current.paid_at;
+    await run(`
+      UPDATE partner_commissions
+      SET amount = ?, status = ?, description = ?, due_at = ?, paid_at = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `, [
+      req.body?.amount === undefined ? current.amount : Number(req.body.amount),
+      status,
+      req.body?.description === undefined ? current.description : String(req.body.description || ""),
+      req.body?.due_at === undefined ? current.due_at : req.body.due_at,
+      paidAt,
+      req.params.id
+    ]);
+    await audit(null, Number(req.user?.userId || 0) || null, "admin.partner_commission.updated", { id: req.params.id, status });
+    return publicSuccess(res, await get("SELECT * FROM partner_commissions WHERE id = ?", [req.params.id]));
   });
 
   app.post("/api/admin/accounts", async (req: AccountRequest, res) => {

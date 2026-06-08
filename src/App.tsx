@@ -698,7 +698,14 @@ const SuperAdminPanel = ({ apiFetch, onImpersonate, onLogout, onBackToAccount, a
   const [plans, setPlans] = useState<any[]>([]);
   const [overview, setOverview] = useState<any>(null);
   const [wooapiMonitor, setWooapiMonitor] = useState<any>(null);
-  const [activeSubTab, setActiveSubTab] = useState<'dashboard' | 'wooapi' | 'accounts' | 'plans' | 'monitor' | 'webhooks' | 'audit' | 'settings'>('dashboard');
+  const [externalIntegrations, setExternalIntegrations] = useState<any[]>([]);
+  const [integrationAccounts, setIntegrationAccounts] = useState<any[]>([]);
+  const [selectedIntegrationId, setSelectedIntegrationId] = useState<number | null>(null);
+  const [externalInstances, setExternalInstances] = useState<any>(null);
+  const [partners, setPartners] = useState<any[]>([]);
+  const [selectedPartnerId, setSelectedPartnerId] = useState<number | null>(null);
+  const [partnerCommissions, setPartnerCommissions] = useState<any[]>([]);
+  const [activeSubTab, setActiveSubTab] = useState<'dashboard' | 'wooapi' | 'accounts' | 'plans' | 'monitor' | 'webhooks' | 'external_integrations' | 'partners' | 'audit' | 'settings'>('dashboard');
   const [newPlan, setNewPlan] = useState({
     name: '',
     price: 0,
@@ -721,16 +728,40 @@ const SuperAdminPanel = ({ apiFetch, onImpersonate, onLogout, onBackToAccount, a
     instance_quota: 1,
     max_client_accounts: 0
   });
+  const [newIntegration, setNewIntegration] = useState({
+    name: 'Evolution API',
+    provider: 'evolution_api',
+    base_url: '',
+    admin_key: '',
+    auth_header: 'apikey',
+    auth_prefix: '',
+    list_instances_path: '/instance/fetchInstances',
+    create_instance_path: '/instance/create',
+    notes: ''
+  });
+  const [newExternalInstance, setNewExternalInstance] = useState({ instanceName: '', qrcode: true, integration: 'WHATSAPP-BAILEYS' });
+  const [newPartner, setNewPartner] = useState({ name: '', email: '', phone: '', commission_rate: 10, notes: '' });
+  const [newCommission, setNewCommission] = useState({ account_id: '', amount: 0, description: '', status: 'pending' });
 
   const fetchData = async () => {
     const accs = await apiFetch('/api/admin/accounts');
     const pls = await apiFetch('/api/admin/plans');
     const ovw = await apiFetch('/api/admin/overview');
     const monitor = await apiFetch('/api/admin/wooapi-monitor');
+    const integrations = await apiFetch('/api/admin/external-integrations');
+    const partnerRows = await apiFetch('/api/admin/partners');
     if (Array.isArray(accs)) setAccounts(accs);
     if (Array.isArray(pls)) setPlans(pls);
     if (ovw) setOverview(ovw);
     if (monitor) setWooapiMonitor(monitor);
+    if (Array.isArray(integrations)) {
+      setExternalIntegrations(integrations);
+      if (!selectedIntegrationId && integrations.length > 0) setSelectedIntegrationId(integrations[0].id);
+    }
+    if (Array.isArray(partnerRows)) {
+      setPartners(partnerRows);
+      if (!selectedPartnerId && partnerRows.length > 0) setSelectedPartnerId(partnerRows[0].id);
+    }
   };
 
   useEffect(() => {
@@ -786,6 +817,91 @@ const SuperAdminPanel = ({ apiFetch, onImpersonate, onLogout, onBackToAccount, a
     if (session?.token) onImpersonate(session);
   };
 
+  const createExternalIntegration = async () => {
+    if (!newIntegration.name || !newIntegration.base_url || !newIntegration.admin_key) return;
+    await apiFetch('/api/admin/external-integrations', {
+      method: 'POST',
+      body: JSON.stringify(newIntegration)
+    });
+    setNewIntegration({ name: 'Evolution API', provider: 'evolution_api', base_url: '', admin_key: '', auth_header: 'apikey', auth_prefix: '', list_instances_path: '/instance/fetchInstances', create_instance_path: '/instance/create', notes: '' });
+    fetchData();
+  };
+
+  const fetchIntegrationAccounts = async (integrationId = selectedIntegrationId) => {
+    if (!integrationId) return;
+    const rows = await apiFetch(`/api/admin/external-integrations/${integrationId}/accounts`);
+    if (Array.isArray(rows)) setIntegrationAccounts(rows);
+  };
+
+  const toggleIntegrationAccount = async (accountId: number, enabled: boolean) => {
+    if (!selectedIntegrationId) return;
+    await apiFetch(`/api/admin/external-integrations/${selectedIntegrationId}/accounts/${accountId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ enabled })
+    });
+    fetchIntegrationAccounts();
+    fetchData();
+  };
+
+  const listExternalInstances = async () => {
+    if (!selectedIntegrationId) return;
+    const data = await apiFetch(`/api/admin/external-integrations/${selectedIntegrationId}/list-instances`, { method: 'POST', body: JSON.stringify({}) });
+    if (data) setExternalInstances(data);
+  };
+
+  const createExternalInstance = async () => {
+    if (!selectedIntegrationId || !newExternalInstance.instanceName.trim()) return;
+    const data = await apiFetch(`/api/admin/external-integrations/${selectedIntegrationId}/create-instance`, {
+      method: 'POST',
+      body: JSON.stringify(newExternalInstance)
+    });
+    if (data) {
+      setExternalInstances(data);
+      setNewExternalInstance({ instanceName: '', qrcode: true, integration: 'WHATSAPP-BAILEYS' });
+    }
+  };
+
+  const createPartner = async () => {
+    if (!newPartner.name.trim()) return;
+    await apiFetch('/api/admin/partners', { method: 'POST', body: JSON.stringify(newPartner) });
+    setNewPartner({ name: '', email: '', phone: '', commission_rate: 10, notes: '' });
+    fetchData();
+  };
+
+  const fetchPartnerCommissions = async (partnerId = selectedPartnerId) => {
+    if (!partnerId) return;
+    const rows = await apiFetch(`/api/admin/partners/${partnerId}/commissions`);
+    if (Array.isArray(rows)) setPartnerCommissions(rows);
+  };
+
+  const createPartnerCommission = async () => {
+    if (!selectedPartnerId || Number(newCommission.amount || 0) <= 0) return;
+    await apiFetch(`/api/admin/partners/${selectedPartnerId}/commissions`, {
+      method: 'POST',
+      body: JSON.stringify({ ...newCommission, account_id: newCommission.account_id ? Number(newCommission.account_id) : null })
+    });
+    setNewCommission({ account_id: '', amount: 0, description: '', status: 'pending' });
+    fetchPartnerCommissions();
+    fetchData();
+  };
+
+  const markCommissionPaid = async (commissionId: number) => {
+    await apiFetch(`/api/admin/partner-commissions/${commissionId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'paid' })
+    });
+    fetchPartnerCommissions();
+    fetchData();
+  };
+
+  useEffect(() => {
+    fetchIntegrationAccounts(selectedIntegrationId);
+  }, [selectedIntegrationId]);
+
+  useEffect(() => {
+    fetchPartnerCommissions(selectedPartnerId);
+  }, [selectedPartnerId]);
+
   const formatNumber = (value: any) => new Intl.NumberFormat('pt-BR').format(Number(value || 0));
   const formatCurrency = (value: any) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value || 0));
   const activeAccounts = Number(overview?.active_accounts || 0);
@@ -824,6 +940,8 @@ const SuperAdminPanel = ({ apiFetch, onImpersonate, onLogout, onBackToAccount, a
     { id: 'plans', label: 'Planos', icon: CreditCard },
     { id: 'monitor', label: 'Monitoramento', icon: Activity },
     { id: 'webhooks', label: 'Webhooks', icon: Webhook },
+    { id: 'external_integrations', label: 'Integracoes Externas', icon: Puzzle },
+    { id: 'partners', label: 'Parceiros', icon: KeyRound },
     { id: 'audit', label: 'Auditoria', icon: FileText },
     { id: 'settings', label: 'Configuracoes', icon: Settings }
   ] as const;
@@ -1658,6 +1776,198 @@ const SuperAdminPanel = ({ apiFetch, onImpersonate, onLogout, onBackToAccount, a
                 {failedWebhooks === 0 && <p className="py-10 text-center text-sm text-slate-500">Nenhuma falha de webhook no momento.</p>}
               </div>
             </Card>
+          </div>
+        )}
+
+        {activeSubTab === 'external_integrations' && (
+          <div className="grid grid-cols-1 gap-5 xl:grid-cols-[360px_1fr]">
+            <Card className="h-fit p-6">
+              <div className="mb-5 flex items-center gap-3">
+                <Puzzle size={20} className="text-red-600" />
+                <h3 className="text-lg font-black">Nova Integracao</h3>
+              </div>
+              <div className="space-y-3">
+                <input className="w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm" placeholder="Nome" value={newIntegration.name} onChange={e => setNewIntegration({ ...newIntegration, name: e.target.value })} />
+                <input className="w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm" placeholder="https://evolution.seudominio.com" value={newIntegration.base_url} onChange={e => setNewIntegration({ ...newIntegration, base_url: e.target.value })} />
+                <input className="w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm" placeholder="Chave admin" type="password" value={newIntegration.admin_key} onChange={e => setNewIntegration({ ...newIntegration, admin_key: e.target.value })} />
+                <div className="grid grid-cols-2 gap-2">
+                  <input className="w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs" placeholder="Header" value={newIntegration.auth_header} onChange={e => setNewIntegration({ ...newIntegration, auth_header: e.target.value })} />
+                  <input className="w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs" placeholder="Prefixo" value={newIntegration.auth_prefix} onChange={e => setNewIntegration({ ...newIntegration, auth_prefix: e.target.value })} />
+                </div>
+                <input className="w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs" placeholder="/instance/fetchInstances" value={newIntegration.list_instances_path} onChange={e => setNewIntegration({ ...newIntegration, list_instances_path: e.target.value })} />
+                <input className="w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs" placeholder="/instance/create" value={newIntegration.create_instance_path} onChange={e => setNewIntegration({ ...newIntegration, create_instance_path: e.target.value })} />
+                <button onClick={createExternalIntegration} className="flex w-full items-center justify-center gap-2 rounded-md bg-red-600 py-3 text-sm font-black text-white hover:bg-red-700">
+                  <Plus size={18} />
+                  Criar integracao
+                </button>
+              </div>
+            </Card>
+
+            <div className="space-y-5">
+              <Card className="p-6">
+                <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <h3 className="text-lg font-black">Sistemas Externos</h3>
+                    <p className="text-sm text-slate-500">Disponivel apenas ao super admin, com liberacao individual por cliente.</p>
+                  </div>
+                  <select className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold" value={selectedIntegrationId || ''} onChange={e => setSelectedIntegrationId(e.target.value ? Number(e.target.value) : null)}>
+                    <option value="">Selecione...</option>
+                    {externalIntegrations.map((integration) => <option key={integration.id} value={integration.id}>{integration.name}</option>)}
+                  </select>
+                </div>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  {externalIntegrations.map((integration) => (
+                    <button key={integration.id} onClick={() => setSelectedIntegrationId(integration.id)} className={cn("rounded-md border p-4 text-left transition-colors", selectedIntegrationId === integration.id ? "border-red-200 bg-red-50" : "border-slate-100 bg-slate-50 hover:bg-white")}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-black text-slate-900">{displayText(integration.name, 'Integracao')}</p>
+                          <p className="mt-1 text-xs text-slate-500">{displayText(integration.base_url)}</p>
+                        </div>
+                        <span className={cn("rounded px-2 py-1 text-[10px] font-black", integration.is_active ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500")}>{integration.is_active ? 'ATIVA' : 'PAUSADA'}</span>
+                      </div>
+                      <p className="mt-3 text-xs text-slate-500">Chave {integration.admin_key_masked} - {formatNumber(integration.allowed_accounts || 0)} cliente(s) liberado(s)</p>
+                    </button>
+                  ))}
+                </div>
+              </Card>
+
+              <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+                <Card className="p-6">
+                  <h3 className="mb-4 text-lg font-black">Operacao Externa</h3>
+                  <div className="space-y-3">
+                    <button onClick={listExternalInstances} disabled={!selectedIntegrationId} className="flex w-full items-center justify-center gap-2 rounded-md bg-slate-900 py-3 text-sm font-black text-white disabled:opacity-50">
+                      <RefreshCw size={17} />
+                      Listar instancias
+                    </button>
+                    <div className="grid grid-cols-1 gap-2 md:grid-cols-[1fr_140px]">
+                      <input className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm" placeholder="Nome da nova instancia" value={newExternalInstance.instanceName} onChange={e => setNewExternalInstance({ ...newExternalInstance, instanceName: e.target.value })} />
+                      <button onClick={createExternalInstance} disabled={!selectedIntegrationId} className="rounded-md bg-red-600 px-3 py-2 text-sm font-black text-white disabled:opacity-50">Criar</button>
+                    </div>
+                    {externalInstances && (
+                      <pre className="max-h-80 overflow-auto rounded-md bg-slate-950 p-4 text-xs text-slate-100">{JSON.stringify(externalInstances, null, 2)}</pre>
+                    )}
+                  </div>
+                </Card>
+
+                <Card className="p-6">
+                  <h3 className="mb-4 text-lg font-black">Liberar por Cliente</h3>
+                  <div className="max-h-[420px] space-y-2 overflow-auto pr-1">
+                    {integrationAccounts.map((acc) => (
+                      <label key={acc.id} className="flex items-center justify-between gap-3 rounded-md border border-slate-100 bg-slate-50 p-3">
+                        <div>
+                          <p className="text-sm font-bold text-slate-900">{displayText(acc.name, `Conta #${acc.id}`)}</p>
+                          <p className="text-xs text-slate-500">{displayText(acc.owner_email)}</p>
+                        </div>
+                        <input type="checkbox" checked={Boolean(acc.enabled)} onChange={e => toggleIntegrationAccount(acc.id, e.target.checked)} className="h-5 w-5 accent-red-600" />
+                      </label>
+                    ))}
+                    {!selectedIntegrationId && <p className="py-10 text-center text-sm text-slate-400">Selecione uma integracao para liberar clientes.</p>}
+                  </div>
+                </Card>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeSubTab === 'partners' && (
+          <div className="grid grid-cols-1 gap-5 xl:grid-cols-[360px_1fr]">
+            <Card className="h-fit p-6">
+              <div className="mb-5 flex items-center gap-3">
+                <KeyRound size={20} className="text-red-600" />
+                <h3 className="text-lg font-black">Novo Parceiro</h3>
+              </div>
+              <div className="space-y-3">
+                <input className="w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm" placeholder="Nome" value={newPartner.name} onChange={e => setNewPartner({ ...newPartner, name: e.target.value })} />
+                <input className="w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm" placeholder="E-mail" value={newPartner.email} onChange={e => setNewPartner({ ...newPartner, email: e.target.value })} />
+                <input className="w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm" placeholder="Telefone" value={newPartner.phone} onChange={e => setNewPartner({ ...newPartner, phone: e.target.value })} />
+                <label className="text-[10px] font-black uppercase text-slate-400">
+                  Comissao %
+                  <input className="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm" type="number" value={newPartner.commission_rate} onChange={e => setNewPartner({ ...newPartner, commission_rate: Number(e.target.value) })} />
+                </label>
+                <button onClick={createPartner} className="flex w-full items-center justify-center gap-2 rounded-md bg-red-600 py-3 text-sm font-black text-white hover:bg-red-700">
+                  <Plus size={18} />
+                  Criar parceiro
+                </button>
+              </div>
+            </Card>
+
+            <div className="space-y-5">
+              <Card className="overflow-hidden">
+                <div className="border-b border-slate-100 p-5">
+                  <h3 className="text-lg font-black">Parceiros e Links</h3>
+                  <p className="text-sm text-slate-500">Links de indicacao e resumo financeiro de comissoes.</p>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[760px] text-left text-sm">
+                    <thead className="bg-slate-50 text-[11px] font-black uppercase text-slate-400">
+                      <tr>
+                        <th className="px-5 py-3">Parceiro</th>
+                        <th className="px-5 py-3">Link</th>
+                        <th className="px-5 py-3">Comissao</th>
+                        <th className="px-5 py-3">Pendentes</th>
+                        <th className="px-5 py-3">Acoes</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {partners.map((partner) => (
+                        <tr key={partner.id} className="border-t border-slate-100">
+                          <td className="px-5 py-4">
+                            <p className="font-black text-slate-900">{displayText(partner.name, `Parceiro #${partner.id}`)}</p>
+                            <p className="text-xs text-slate-500">{displayText(partner.email)}</p>
+                          </td>
+                          <td className="px-5 py-4">
+                            <p className="max-w-[260px] truncate rounded bg-slate-50 px-2 py-1 font-mono text-xs text-slate-500">{partner.referral_link}</p>
+                          </td>
+                          <td className="px-5 py-4 font-bold">{formatNumber(partner.commission_rate)}%</td>
+                          <td className="px-5 py-4 font-black text-red-600">{formatCurrency(partner.pending_commissions || 0)}</td>
+                          <td className="px-5 py-4">
+                            <button onClick={() => setSelectedPartnerId(partner.id)} className="rounded-md bg-slate-900 px-3 py-2 text-xs font-black text-white">Comissoes</button>
+                          </td>
+                        </tr>
+                      ))}
+                      {partners.length === 0 && <tr><td colSpan={5} className="px-5 py-10 text-center text-sm text-slate-400">Nenhum parceiro criado ainda.</td></tr>}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+
+              <Card className="p-6">
+                <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <h3 className="text-lg font-black">Gestao de Comissoes</h3>
+                    <p className="text-sm text-slate-500">Registre manualmente vendas indicadas e marque pagamentos.</p>
+                  </div>
+                  <select className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold" value={selectedPartnerId || ''} onChange={e => setSelectedPartnerId(e.target.value ? Number(e.target.value) : null)}>
+                    <option value="">Parceiro...</option>
+                    {partners.map((partner) => <option key={partner.id} value={partner.id}>{partner.name}</option>)}
+                  </select>
+                </div>
+                <div className="mb-5 grid grid-cols-1 gap-2 md:grid-cols-[1fr_120px_1fr_130px]">
+                  <select className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm" value={newCommission.account_id} onChange={e => setNewCommission({ ...newCommission, account_id: e.target.value })}>
+                    <option value="">Cliente vinculado...</option>
+                    {accounts.map((acc) => <option key={acc.id} value={acc.id}>{acc.name}</option>)}
+                  </select>
+                  <input className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm" type="number" placeholder="Valor" value={newCommission.amount} onChange={e => setNewCommission({ ...newCommission, amount: Number(e.target.value) })} />
+                  <input className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm" placeholder="Descricao" value={newCommission.description} onChange={e => setNewCommission({ ...newCommission, description: e.target.value })} />
+                  <button onClick={createPartnerCommission} disabled={!selectedPartnerId} className="rounded-md bg-red-600 px-3 py-2 text-sm font-black text-white disabled:opacity-50">Registrar</button>
+                </div>
+                <div className="space-y-2">
+                  {partnerCommissions.map((commission) => (
+                    <div key={commission.id} className="flex flex-col gap-3 rounded-md border border-slate-100 bg-slate-50 p-3 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <p className="font-bold text-slate-900">{formatCurrency(commission.amount)} - {displayText(commission.account_name, 'Sem cliente')}</p>
+                        <p className="text-xs text-slate-500">{displayText(commission.description, 'Comissao de indicacao')}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={cn("rounded px-2 py-1 text-[10px] font-black", commission.status === 'paid' ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700")}>{commission.status === 'paid' ? 'PAGA' : 'PENDENTE'}</span>
+                        {commission.status !== 'paid' && <button onClick={() => markCommissionPaid(commission.id)} className="rounded-md bg-slate-900 px-3 py-2 text-xs font-black text-white">Marcar paga</button>}
+                      </div>
+                    </div>
+                  ))}
+                  {selectedPartnerId && partnerCommissions.length === 0 && <p className="py-8 text-center text-sm text-slate-400">Nenhuma comissao registrada para este parceiro.</p>}
+                </div>
+              </Card>
+            </div>
           </div>
         )}
 
