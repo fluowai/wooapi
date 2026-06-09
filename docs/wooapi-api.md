@@ -210,7 +210,13 @@ curl -X POST http://localhost:3002/api/v1/instances/17/send-text \
   }'
 ```
 
-Para enviar de forma assíncrona, informe `async: true` ou `mode: "async"`. A API retorna `202` quando a mensagem entra na fila; o resultado final chega por webhook `message.sent` ou `message.failed`.
+### Envio assíncrono de mensagens
+
+Use envio assíncrono quando o cliente da API não deve aguardar o WhatsApp confirmar o envio no mesmo request. Informe `async: true`, `async_send: true`, `send_async: true` ou `mode: "async"` no corpo da requisição.
+
+Quando aceito, a API retorna HTTP `202` com `queued: true`, `jobId`, `pendingMessageId` e a mensagem salva como `pending`. O resultado final chega depois pelos webhooks `message.sent` ou `message.failed`.
+
+> Importante: o envio assíncrono requer `QUEUE_DRIVER=bullmq`, Redis disponível e o worker `npm run worker:messages` em execução. Se a fila não estiver disponível, a API retorna `QUEUE_UNAVAILABLE`.
 
 ```json
 {
