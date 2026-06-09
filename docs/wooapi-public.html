@@ -166,6 +166,7 @@
         <a href="#primeiros-passos">Primeiros passos</a>
         <a href="#instancias">Instancias</a>
         <a href="#mensagens">Mensagens</a>
+        <a href="#envio-assincrono">Envio assincrono</a>
         <a href="#webhooks">Webhooks</a>
         <a href="#n8n">n8n</a>
         <a href="#postman">Postman</a>
@@ -316,6 +317,30 @@
     "mime_type": "application/pdf",
     "file_name": "catalogo.pdf"
   }'</code></pre>
+        <h3 id="envio-assincrono">Envio assincrono</h3>
+        <div class="ok">
+          <p><strong>Use quando seu sistema nao deve aguardar o WhatsApp confirmar o envio no mesmo request.</strong> Adicione <code>async: true</code>, <code>async_send: true</code>, <code>send_async: true</code> ou <code>mode: "async"</code> no corpo da requisicao.</p>
+          <p>A API retorna HTTP <code>202</code> com <code>queued: true</code>, <code>jobId</code>, <code>pendingMessageId</code> e a mensagem salva como <code>pending</code>. O resultado final chega depois pelos webhooks <code>message.sent</code> ou <code>message.failed</code>.</p>
+          <p><strong>Importante:</strong> requer <code>QUEUE_DRIVER=bullmq</code>, Redis disponivel e o worker <code>npm run worker:messages</code> em execucao. Se a fila nao estiver disponivel, a API retorna <code>QUEUE_UNAVAILABLE</code>.</p>
+        </div>
+        <pre><code>curl -X POST http://localhost:3002/api/v1/instances/17/send-text \
+  -H "x-api-key: woo_sua_api_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "number": "5548999999999",
+    "text": "Ola! Esta mensagem sera enviada pela fila.",
+    "async": true
+  }'</code></pre>
+        <h4>Resposta quando enfileirada</h4>
+        <pre><code>{
+  "success": true,
+  "message": "Mensagem enfileirada para envio",
+  "data": {
+    "queued": true,
+    "jobId": "12345",
+    "pendingMessageId": "out_1710000000000"
+  }
+}</code></pre>
         <h3>Enviar localizacao</h3>
         <pre><code>curl -X POST http://localhost:3002/api/v1/instances/17/send-location \
   -H "x-api-key: woo_sua_api_key" \
