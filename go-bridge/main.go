@@ -125,7 +125,8 @@ func (b *Bridge) eventHandler(instanceId int, accountId int, evt interface{}) {
 	switch v := evt.(type) {
 	case *events.Message:
 		b.cacheMessage(instanceId, v)
-		b.sendToNode("message", instanceId, accountId, v)
+		enriched := b.enrichMessage(v, instanceId)
+		b.sendToNode("message", instanceId, accountId, enriched)
 	case *events.Receipt:
 		b.sendToNode("receipt", instanceId, accountId, v)
 	case *events.Presence:
@@ -244,6 +245,134 @@ func (b *Bridge) safeProfilePictureURL(client *whatsmeow.Client, jid types.JID) 
 		return ""
 	}
 	return pic.URL
+}
+
+// formatBrazilianNumber formata um número brasileiro: 5548988003260 -> +55 (48) 98800-3260
+func formatBrazilianNumber(user string) string {
+	digits := onlyDigits(user)
+	if len(digits) < 10 {
+		return digits
+	}
+	hasCountryCode := strings.HasPrefix(digits, "55")
+	if hasCountryCode {
+		digits = digits[2:]
+	}
+	if len(digits) == 10 {
+		// 48 8800 3260
+		return fmt.Sprintf("+55 (%s) %s-%s", digits[:2], digits[2:6], digits[6:])
+	} else if len(digits) == 11 {
+		// 48 9 8800 3260
+		return fmt.Sprintf("+55 (%s) %s%s-%s", digits[:2], string(digits[2]), digits[3:7], digits[7:])
+	}
+	return "+55" + digits
+}
+
+// enrichMessage enriquece o payload da mensagem com informações adicionais
+// antes de enviá-la para o Node: groupName, pushName resolvido, número formatado
+func (b *Bridge) enrichMessage(msg *events.Message, instanceID int) map[string]interface{} {
+	out := make(map[string]interface{})
+	raw, _ := json.Marshal(msg)
+	json.Unmarshal(raw, &out)
+
+	// Garante que Info esteja em ambos os formatos (maiúsculo e minúsculo)
+	info, _ := out["Info"].(map[string]interface{})
+	if info == nil {
+		info, _ = out["info"].(map[string]interface{})
+	}
+	if info == nil {
+		info = make(map[string]interface{})
+		out["Info"] = info
+		out["info"] = info
+	}
+
+	chatJID := msg.Info.Chat
+	senderJID := msg.Info.Sender
+	isGroup := chatJID.Server == types.GroupServer
+
+	// 1. Resolve nome do grupo
+	if isGroup {
+		b.mu.Lock()
+		client, hasClient := b.clients[instanceID]
+		b.mu.Unlock()
+		if hasClient && client != nil && client.IsLoggedIn() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			groupInfo, err := client.GetGroupInfo(ctx, chatJID)
+			cancel()
+			if err == nil && groupInfo.Name != "" {
+				info["GroupName"] = groupInfo.Name
+				info["groupName"] = groupInfo.Name
+				info["ChatName"] = groupInfo.Name
+				info["chatName"] = groupInfo.Name
+				out["GroupName"] = groupInfo.Name
+				out["groupName"] = groupInfo.Name
+			}
+		}
+	}
+
+	// 2. Resolve push name do remetente
+	pushName, _ := info["PushName"].(string)
+	if pushName == "" {
+		pushName, _ = info["pushName"].(string)
+	}
+	if pushName == "" && senderJID.User != "" {
+		b.mu.Lock()
+		client, hasClient := b.clients[instanceID]
+		b.mu.Unlock()
+		if hasClient && client != nil && client.IsLoggedIn() && client.Store != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			contact, err := client.Store.Contacts.GetContact(ctx, senderJID.ToNonAD())
+			cancel()
+			if err == nil && contact.PushName != "" {
+				pushName = contact.PushName
+				info["PushName"] = pushName
+				info["pushName"] = pushName
+			}
+		}
+	}
+
+	// 3. Adiciona número formatado do remetente
+	if senderJID.User != "" {
+		formatted := formatBrazilianNumber(senderJID.User)
+		info["FormattedNumber"] = formatted
+		info["formattedNumber"] = formatted
+		out["FormattedNumber"] = formatted
+		out["formattedNumber"] = formatted
+	}
+
+	// 4. Resolve push names de menções
+	if msg.Message != nil && msg.Message.ExtendedTextMessage != nil && len(msg.Message.ExtendedTextMessage.ContextInfo.GetMentionedJID()) > 0 {
+		mentions := make([]map[string]interface{}, 0)
+		mentionJIDs := msg.Message.ExtendedTextMessage.ContextInfo.GetMentionedJID()
+		for _, mJID := range mentionJIDs {
+			parsed, err := types.ParseJID(mJID)
+			if err != nil || parsed.User == "" {
+				continue
+			}
+			entry := map[string]interface{}{
+				"jid":             parsed.ToNonAD().String(),
+				"pushName":        "",
+				"formattedNumber": formatBrazilianNumber(parsed.User),
+			}
+			b.mu.Lock()
+			client, hasClient := b.clients[instanceID]
+			b.mu.Unlock()
+			if hasClient && client != nil && client.IsLoggedIn() && client.Store != nil {
+				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				contact, err := client.Store.Contacts.GetContact(ctx, parsed.ToNonAD())
+				cancel()
+				if err == nil && contact.PushName != "" {
+					entry["pushName"] = contact.PushName
+				}
+			}
+			mentions = append(mentions, entry)
+		}
+		if len(mentions) > 0 {
+			info["MentionedContacts"] = mentions
+			info["mentionedContacts"] = mentions
+		}
+	}
+
+	return out
 }
 
 func (b *Bridge) bindInstanceDevice(instanceID int, jid types.JID) {

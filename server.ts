@@ -417,6 +417,19 @@ function normalizeWhatsAppPhone(input = "") {
   return phone;
 }
 
+function formatBrazilianPhone(input = "") {
+  const digits = normalizePhone(input);
+  if (!digits) return input;
+  let number = digits;
+  if (number.startsWith("55")) number = number.slice(2);
+  if (!number) return digits;
+  if (number.length === 10) return `+55 (${number.slice(0, 2)}) ${number.slice(2, 6)}-${number.slice(6)}`;
+  if (number.length === 11) return `+55 (${number.slice(0, 2)}) ${number.slice(2, 3)} ${number.slice(3, 7)}-${number.slice(7)}`;
+  if (number.length === 12) return `+55 (${number.slice(0, 2)}) ${number.slice(2, 6)}-${number.slice(6)}`;
+  if (number.length === 13) return `+55 (${number.slice(2, 4)}) ${number.slice(4, 5)} ${number.slice(5, 9)}-${number.slice(9)}`;
+  return digits;
+}
+
 function resolveTargetJid(input?: string | null) {
   const raw = String(input || "").trim();
   if (!raw) return "";
@@ -445,7 +458,8 @@ function jidToConversationFields(jid = "") {
     return { type: "group", remote_jid: jid, group_jid: jid, contact_phone: null, title: jid };
   }
   const phone = normalizePhone(jid.split("@")[0]);
-  return { type: "contact", remote_jid: jid, group_jid: null, contact_phone: phone, title: phone || jid };
+  const formatted = phone ? formatBrazilianPhone(phone) : jid;
+  return { type: "contact", remote_jid: jid, group_jid: null, contact_phone: phone, title: formatted };
 }
 
 function isGroupJid(jid?: string | null) {
@@ -633,13 +647,19 @@ function getMessageSource(payload: any) {
     if (value.User || value.user) return `${value.User || value.user}@${value.Server || value.server || "s.whatsapp.net"}`;
     return "";
   };
+  const pushName = info.PushName || info.pushName || payload?.PushName || "";
+  const formattedNumber = info.FormattedNumber || info.formattedNumber || payload?.FormattedNumber || payload?.formattedNumber || "";
+  const groupName = info.GroupName || info.groupName || payload?.GroupName || payload?.groupName
+    || info.ChatName || info.chatName || payload?.ChatName || payload?.chatName || "";
   return {
     chatJid: jidFrom(chat) || jidFrom(info.Chat || info.chat),
     senderJid: jidFrom(sender) || jidFrom(info.Sender || info.sender),
     senderAltJid: jidFrom(info.SenderAlt || info.senderAlt),
     recipientAltJid: jidFrom(info.RecipientAlt || info.recipientAlt),
     id: info.ID || info.id || payload?.ID || payload?.id || `msg_${Date.now()}`,
-    pushName: info.PushName || info.pushName || payload?.PushName || "",
+    pushName,
+    formattedNumber,
+    groupName,
     timestamp: info.Timestamp || info.timestamp || new Date().toISOString()
   };
 }
@@ -669,8 +689,10 @@ function selectAuthorJid(source: ReturnType<typeof getMessageSource>, isFromMe: 
   return source.senderAltJid || source.senderJid || "";
 }
 
-function conversationTitleFromMessage(jid: string, payload: any, pushName?: string) {
-  if (!isGroupJid(jid)) return cleanDisplayName(pushName);
+function conversationTitleFromMessage(jid: string, payload: any, pushName?: string, formattedNumber?: string) {
+  if (!isGroupJid(jid)) {
+    return cleanDisplayName(pushName) || formattedNumber || "";
+  }
   return cleanDisplayName(
     payload?.GroupName ||
     payload?.groupName ||
@@ -1427,7 +1449,7 @@ async function startServer() {
   const io = new Server(httpServer, {
     cors: { origin: socketCorsOrigin },
     pingInterval: 25000,
-    pingTimeout: 10000
+    pingTimeout: 30000
   });
   realtimeIo = io;
   const upload = multer({
@@ -1770,7 +1792,7 @@ async function startServer() {
     if (/token|secret|sqlite|database|stack|trace|bridge|internal|core|go\.mau|whatsmeow/i.test(raw)) {
       return "Operação não concluída pelo WooAPI Core";
     }
-    return raw.slice(0, 180);
+    return raw.slice(0, 180).trim();
   }
 
   function accountCanOperate(account: any) {
@@ -1915,7 +1937,13 @@ async function startServer() {
     const text = await response.text();
     let data: any = {};
     try { data = text ? JSON.parse(text) : {}; } catch { data = { error: text }; }
-    if (!response.ok) throw new Error(data.error || text || `WooAPI Core error ${response.status}`);
+    if (!response.ok) {
+      const message = data.error || data.message || text || `WooAPI Core error ${response.status}`;
+      const error: any = new Error(String(message));
+      error.statusCode = response.status;
+      error.bridgeData = data;
+      throw error;
+    }
     return data;
   }
 
@@ -4878,11 +4906,17 @@ async function startServer() {
         await logMessage(Number(publicAccountId || req.accountId || 0) || null, pendingInstanceId, pendingMessageId, "outbound", "failed", { error: sanitizePublicError(error) });
         io.to(`account:${publicAccountId || req.accountId}`).emit("message.status", { messageId: pendingMessageId, status: "failed" });
       }
-      const statusCode = Number(error?.statusCode || 500);
+      let statusCode = Number(error?.statusCode || 500);
+      if (statusCode < 100 || statusCode > 599) statusCode = 502;
+      const publicMessage = sanitizePublicError(error);
+      const has463 = /463/.test(publicMessage);
+      const hint = has463
+        ? ". Verifique se o numero existe no WhatsApp ou tente reconectar a instancia."
+        : "";
       if (req.path.startsWith("/api/v1/")) {
-        return publicError(res, statusCode, error?.code || "SEND_FAILED", sanitizePublicError(error));
+        return publicError(res, statusCode, error?.code || "SEND_FAILED", publicMessage + hint);
       }
-      return res.status(statusCode).json({ error: sanitizePublicError(error) });
+      return res.status(statusCode).json({ error: publicMessage + hint });
     }
   }
 
@@ -6982,10 +7016,29 @@ const session = await requireV1Account(req, res);
       if (!chatJid || isIgnoredChatJid(chatJid) || isIgnoredChatJid(source.chatJid) || isIgnoredChatJid(source.senderJid)) {
         return res.json({ success: true, skipped: true, reason: "ignored_chat_jid" });
       }
-      let conversationTitle = conversationTitleFromMessage(chatJid, payload, source.pushName);
+      // Resolve pushName com fallback para número formatado
+      const resolvedPushName = source.pushName || source.formattedNumber || "";
+      // Para grupos, tenta usar o groupName enriquecido primeiro
+      let conversationTitle = source.groupName || conversationTitleFromMessage(chatJid, payload, source.pushName, source.formattedNumber);
       const conversation = await ensureConversation(numericAccountId, numericInstanceId, chatJid, conversationTitle);
       const { contentType, contentText: rawContentText } = getContentFromPayload(payload);
       let contentText = rawContentText;
+      // Processa menções no texto: substitui @numero pelo push name ou número formatado
+      if (contentType === "text" && contentText && contentText.includes("@")) {
+        const mentionedContacts = payload?.Info?.MentionedContacts || payload?.info?.mentionedContacts || [];
+        if (Array.isArray(mentionedContacts) && mentionedContacts.length > 0) {
+          for (const mention of mentionedContacts) {
+            const mentionJid = mention.jid || "";
+            const mentionPushName = mention.pushName || "";
+            const mentionFormatted = mention.formattedNumber || "";
+            const mentionLabel = mentionPushName || mentionFormatted || mentionJid;
+            const mentionUser = normalizePhone(mentionJid);
+            if (mentionUser) {
+              contentText = contentText.replace(new RegExp(`@${mentionUser}`, "g"), `@${mentionLabel}`);
+            }
+          }
+        }
+      }
       if (contentType !== "text") {
         const storedMediaUrl = await storeReceivedMedia(numericAccountId, numericInstanceId, source.id, contentType, chatJid);
         if (storedMediaUrl) contentText = storedMediaUrl;
@@ -7002,14 +7055,18 @@ const session = await requireV1Account(req, res);
       const direction = isFromMe ? "outbound" : "inbound";
       const duplicate = await get("SELECT id FROM messages WHERE account_id = ? AND message_id = ?", [numericAccountId, source.id]);
       if (!duplicate) {
+        const displayName = resolvedPushName;
         const info = await run(
           "INSERT INTO messages (account_id, instance_id, conversation_id, direction, chat_type, author_phone, author_push_name, content_type, content_text, message_id, delivery_status, from_me, sender, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-          [numericAccountId, numericInstanceId, conversation.id, direction, conversation.type, normalizePhone(authorJid), source.pushName, contentType, contentText, source.id, isFromMe ? "sent" : "received", isFromMe ? 1 : 0, isFromMe ? "human" : "lead", JSON.stringify(payload)]
+          [numericAccountId, numericInstanceId, conversation.id, direction, conversation.type, normalizePhone(authorJid), displayName, contentType, contentText, source.id, isFromMe ? "sent" : "received", isFromMe ? 1 : 0, isFromMe ? "human" : "lead", JSON.stringify(payload)]
         );
         await logMessage(numericAccountId, numericInstanceId, source.id, direction, isFromMe ? "sent" : "received", { conversationId: conversation.id, contentType });
+        const conversationDisplayTitle = conversation.type === "group"
+          ? conversationTitle
+          : (cleanDisplayName(source.pushName) || source.formattedNumber || "");
         await run(
           "UPDATE conversations SET remote_jid = COALESCE(NULLIF(?, ''), remote_jid), title = COALESCE(NULLIF(?, ''), title), contact_profile_picture_url = COALESCE(NULLIF(?, ''), contact_profile_picture_url), last_message_preview = ?, unread_count = unread_count + ?, last_message_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-          [chatJid, conversation.type === "group" ? conversationTitle : cleanDisplayName(source.pushName), contactProfilePictureUrl, contentType === "text" ? contentText : mediaPreview(contentType, contentText), isFromMe ? 0 : 1, conversation.id]
+          [chatJid, conversationDisplayTitle, contactProfilePictureUrl, contentType === "text" ? contentText : mediaPreview(contentType, contentText), isFromMe ? 0 : 1, conversation.id]
         );
         const message = await get("SELECT * FROM messages WHERE id = ?", [info.lastInsertRowid]);
         const updatedConversation = await get("SELECT *, last_message_preview AS last_message FROM conversations WHERE id = ?", [conversation.id]);

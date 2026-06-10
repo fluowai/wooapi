@@ -265,6 +265,25 @@ const displayNumber = (value: any, fallback = 0) => {
   return Number.isFinite(number) ? number : fallback;
 };
 
+const formatBrazilianPhone = (input = "") => {
+  const digits = String(input).replace(/\D/g, "");
+  if (!digits) return input;
+  let num = digits;
+  if (num.startsWith("55")) num = num.slice(2);
+  if (!num) return digits;
+  if (num.length === 10) return `+55 (${num.slice(0, 2)}) ${num.slice(2, 6)}-${num.slice(6)}`;
+  if (num.length === 11) return `+55 (${num.slice(0, 2)}) ${num.slice(2, 3)} ${num.slice(3, 7)}-${num.slice(7)}`;
+  if (num.length === 12) return `+55 (${num.slice(0, 2)}) ${num.slice(2, 6)}-${num.slice(6)}`;
+  if (num.length === 13) return `+55 (${num.slice(2, 4)}) ${num.slice(4, 5)} ${num.slice(5, 9)}-${num.slice(9)}`;
+  return digits;
+};
+
+const resolveDisplayName = (pushName?: string, phone?: string) => {
+  if (pushName && pushName.trim()) return pushName.trim();
+  if (phone && phone.trim()) return formatBrazilianPhone(phone);
+  return "Desconhecido";
+};
+
 // --- Components ---
 
 const SidebarItem = ({ icon: Icon, label, active, onClick, href }: { icon: any, label: string, active: boolean, onClick?: () => void, href?: string }) => (
@@ -4389,7 +4408,7 @@ export default function App() {
                         >
                           <div className="flex items-center gap-2 mb-1">
                             {msg.chat_type === 'group' && msg.direction === 'inbound' && (
-                              <span className="text-[10px] text-slate-400 ml-1">{msg.author_push_name || msg.author_phone}</span>
+                              <span className="text-[10px] text-slate-400 ml-1">{resolveDisplayName(msg.author_push_name, msg.author_phone)}</span>
                             )}
                             <button
                               onClick={() => deleteChatMessage(msg.id)}
@@ -5889,7 +5908,7 @@ export default function App() {
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center justify-between gap-2">
                                 <p className="truncate text-xs font-bold text-slate-900">
-                                  {isInbound ? (msg.author_push_name || msg.author_phone || msg.from || 'Desconhecido') : (msg.to || 'Desconhecido')}
+                                  {isInbound ? resolveDisplayName(msg.author_push_name, msg.author_phone || msg.from) : (msg.to || 'Desconhecido')}
                                 </p>
                                 <span className="shrink-0 text-[10px] text-slate-400">
                                   {msg.receivedAt ? new Date(msg.receivedAt).toLocaleTimeString('pt-BR') : ''}
