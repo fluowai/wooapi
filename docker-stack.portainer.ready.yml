@@ -24,17 +24,17 @@ x-wooapi-env: &wooapi_env
 
   # Supabase / PostgreSQL
   DB_TYPE: postgresql
-  DATABASE_URL: "postgresql://postgres.vbnvjjhckcjoshxfovsu:icElGGhFoS9A6Jme@aws-1-sa-east-1.pooler.supabase.com:6543/postgres?pgbouncer=true&sslmode=require&uselibpqcompat=true"
-  SUPABASE_DB_URL: "postgresql://postgres.vbnvjjhckcjoshxfovsu:icElGGhFoS9A6Jme@aws-1-sa-east-1.pooler.supabase.com:6543/postgres?pgbouncer=true&sslmode=require&uselibpqcompat=true"
+  DATABASE_URL: "postgresql://postgres.lwpypedkffdqbhhcquvn:T3Fu2Y9rYlfRoLkr@aws-1-sa-east-1.pooler.supabase.com:6543/postgres?pgbouncer=true&sslmode=require&uselibpqcompat=true"
+  SUPABASE_DB_URL: "postgresql://postgres.lwpypedkffdqbhhcquvn:T3Fu2Y9rYlfRoLkr@aws-1-sa-east-1.pooler.supabase.com:6543/postgres?pgbouncer=true&sslmode=require&uselibpqcompat=true"
   PGSSLMODE: require
-  SUPABASE_URL: "https://hditcytuxtdsmigehova.supabase.co"
-  VITE_SUPABASE_URL: "https://hditcytuxtdsmigehova.supabase.co"
-  SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhkaXRjeXR1eHRkc21pZ2Vob3ZhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5OTAyNjgsImV4cCI6MjA5NTU2NjI2OH0.TNXRaB79oWCwu9Dk2OF4qCSk2jeyX5sMlvvi-YtCpU0"
-  VITE_SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhkaXRjeXR1eHRkc21pZ2Vob3ZhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5OTAyNjgsImV4cCI6MjA5NTU2NjI2OH0.TNXRaB79oWCwu9Dk2OF4qCSk2jeyX5sMlvvi-YtCpU0"
-  SUPABASE_SERVICE_ROLE_KEY: "dBfYR7wuEKF36vzPoS/uJIHHdRIt5g6gEuvx1DQ2o/jchIbyQsDNObh+NSJUWkVFbO+h+C2kqqKOoLWe9qIcCA=="
+  SUPABASE_URL: "https://lwpypedkffdqbhhcquvn.supabase.co"
+  VITE_SUPABASE_URL: "https://lwpypedkffdqbhhcquvn.supabase.co"
+  SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx3cHlwZWRrZmZkcWJoaGNxdXZuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI5MzA5MDcsImV4cCI6MjA5ODUwNjkwN30.EjW111cUc4PUNephLiCL3wH67xZkMcFaKWjCImoXZdY"
+  VITE_SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx3cHlwZWRrZmZkcWJoaGNxdXZuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI5MzA5MDcsImV4cCI6MjA5ODUwNjkwN30.EjW111cUc4PUNephLiCL3wH67xZkMcFaKWjCImoXZdY"
+  SUPABASE_SERVICE_ROLE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx3cHlwZWRrZmZkcWJoaGNxdXZuIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MjkzMDkwNywiZXhwIjoyMDk4NTA2OTA3fQ.6JxGedTrFtdGm-2R30qYfI8Q25ipikcqN8uSy2pc4UI"
 
   # Seguranca / tokens
-  JWT_SECRET: "pG/j9YVaovpgMIpPbyiNjeyhTAJV7y7aGM7F1G2+OvDBRA6Kg82bo+yyRGcSh8CY"
+  JWT_SECRET: "1QERy1zb3ILL6qwORX8ISHLAutbdiaLvJflp8OU3WA90tzWTpP/Dd7yucDi1ZQGpz04wu6VXjGnbINuu3r1IlA=="
   WEBHOOK_SECRET: "sBLSug2WpAwkKOrg7PeupcvtGot5EKHULilipSxel+kRHcljPYkbGq9aeOGAhlou"
   WOOAPI_ADMIN_TOKEN: "uaz-token-X8kL2mR4nP6tV9wZ"
   UAZAPI_ADMIN_TOKEN: "uaz-token-X8kL2mR4nP6tV9wZ"
