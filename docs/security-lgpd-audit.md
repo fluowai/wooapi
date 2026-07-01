@@ -329,9 +329,58 @@ Estado atual: nao aprovado para producao sem correcoes criticas. A arquitetura t
 - `npm audit fix` aplicado; `npm audit --omit=dev` passou com 0 vulnerabilidades.
 - Verificacoes executadas: `npm run lint`, `npm run build` e `npm audit --omit=dev`.
 
+## Correcoes Aplicadas em 2026-06-09
+
+### LGPD - Endpoints de Dados do Titular
+
+Implementados no `server.ts`:
+
+- `POST /api/data/export` — exportacao completa dos dados do titular (DSAR), com registro em `data_subject_requests`
+- `POST /api/data/anonymize` — anonimizacao granular por escopo: `account`, `messages`, `leads`, `conversations`, `all`
+- `POST /api/data/consent` — registro e revogacao de consentimento com armazenamento de IP e user-agent
+- `GET /api/data/consent/:userId` — consulta de registros de consentimento
+- `GET /api/data/requests` — listagem do historico de solicitacoes do titular
+- `GET /privacy` — politica de privacidade completa servida via `docs/privacy.md`
+
+Tabelas criadas na migrate (`server.ts` ~1009-1011):
+
+- `data_consent` — registro de consentimentos LGPD
+- `data_retention_policies` — politicas de retencao por tipo de dado
+- `data_subject_requests` — solicitacoes de titulares (export/anonimizacao)
+
+### Retention Policy Scheduler
+
+Implementado scheduler a cada 1h que aplica automaticamente as politicas de `data_retention_policies`:
+- `messages`: deleta mensagens antigas
+- `logs`: limpa `message_logs` e `connection_logs`
+- `webhooks`: limpa `webhook_events` e `webhook_delivery_logs`
+- `consent`: deleta registros de consentimento revogados fora do prazo
+
+### MCP Server (Model Context Protocol)
+
+Novo pacote `mcp-server/` para integracao com assistentes IA via protocolo MCP:
+
+- 17 ferramentas organizadas em 4 categorias: mensagens, grupos, contatos, instancias
+- 3 resources (`wooapi://conversations`, `wooapi://instances`, `wooapi://messages`)
+- 4 prompts (`customer_support_agent`, `broadcast_campaign`, `group_management`, `contact_research`)
+- Transporte stdio, compativel com Claude Desktop e Cursor
+- URI scheme `wooapi://` para resources
+
+### Cobertura de auditoria atualizada
+
+| Requisito | Status |
+|-----------|--------|
+| Politica de privacidade | ✅ Implementado (`docs/privacy.md` + `GET /privacy`) |
+| Registro de consentimento | ✅ Implementado (`POST /api/data/consent`) |
+| Exportacao de dados do titular | ✅ Implementado (`POST /api/data/export`) |
+| Anonimizacao/exclusao | ✅ Implementado (`POST /api/data/anonymize`) |
+| Retencao parametrizada | ✅ Implementado (`data_retention_policies` + scheduler) |
+| Consentimento por lead | ⏳ Pendente (frontend + campanhas) |
+| Token do painel em cookie HttpOnly | ⏳ Pendente |
+
 Pendencias que continuam relevantes:
 
 - Rotacionar credenciais que ja ficaram expostas anteriormente.
 - Avaliar migracao do token do painel de `localStorage` para cookie `HttpOnly`.
-- Criar politica de privacidade/LGPD completa, consentimento por lead e fluxos de exportacao/exclusao/anonimizacao.
+- Consentimento por lead no frontend e campanhas.
 - Planejar persistencia segura do banco da bridge WhatsApp em volume/backup criptografado, fora do repositorio.

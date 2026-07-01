@@ -1,4 +1,4 @@
-module wooapi/bridge
+module wooapi/engine-v2
 
 go 1.25.0
 

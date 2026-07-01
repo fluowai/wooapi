@@ -474,6 +474,217 @@ adminToken
 - Use backup de banco, sessoes e midias.
 - Configure billing e readiness antes de venda aberta.
 
+## LGPD e Privacidade
+
+```http
+GET  /privacy
+POST /api/data/export
+POST /api/data/anonymize
+POST /api/data/consent
+GET  /api/data/consent/:userId
+GET  /api/data/requests
+```
+
+### Politica de Privacidade
+
+```bash
+curl http://localhost:3000/privacy
+```
+
+Retorna a politica de privacidade completa em markdown (ou HTML se o arquivo `docs/privacy.md` nao existir).
+
+### Exportar dados do titular (DSAR)
+
+```bash
+curl -X POST http://localhost:3000/api/data/export \
+  -H "Authorization: Bearer JWT_DA_CONTA"
+```
+
+Resposta:
+
+```json
+{
+  "success": true,
+  "requestId": 1,
+  "data": {
+    "exportedAt": "2026-06-09T...",
+    "account": { ... },
+    "instances": [ ... ],
+    "conversations": [ ... ],
+    "messages": [ ... ],
+    "leads": [ ... ],
+    "consentRecords": [ ... ]
+  }
+}
+```
+
+### Anonimizar dados
+
+```bash
+curl -X POST http://localhost:3000/api/data/anonymize \
+  -H "Authorization: Bearer JWT_DA_CONTA" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "scope": "all"
+  }'
+```
+
+`scope` pode ser: `account`, `messages`, `leads`, `conversations` ou `all`.
+
+### Registrar consentimento
+
+```bash
+curl -X POST http://localhost:3000/api/data/consent \
+  -H "Authorization: Bearer JWT_DA_CONTA" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "purpose": "marketing",
+    "consent_type": "lgpd",
+    "granted": true,
+    "userId": 42
+  }'
+```
+
+Para revogar, envie `granted: false`.
+
+### Consultar consentimentos
+
+```bash
+curl http://localhost:3000/api/data/consent/me \
+  -H "Authorization: Bearer JWT_DA_CONTA"
+```
+
+Use `me` para consultar consentimentos da conta ou um `userId` especifico.
+
+### Historico de solicitacoes
+
+```bash
+curl http://localhost:3000/api/data/requests \
+  -H "Authorization: Bearer JWT_DA_CONTA"
+```
+
+## MCP Server (Model Context Protocol)
+
+A WooAPI fornece um servidor MCP (Model Context Protocol) que permite que assistentes IA (Claude Desktop, Cursor, etc.) interajam diretamente com a API do WhatsApp.
+
+### Arquitetura
+
+```
+mcp-server/
+  src/
+    index.ts                  # Entrypoint stdio
+    lib/
+      config.ts               # Configuracao via env
+      api.ts                  # HTTP client para API WooAPI
+    tools/
+      messaging.ts            # Envio de mensagens
+      groups.ts               # Gerenciamento de grupos
+      contacts.ts             # Consulta de contatos
+      instances.ts            # Gerenciamento de instancias
+    resources/
+      conversations.ts        # Resources de conversas/instancias/mensagens
+    prompts/
+      templates.ts            # Templates de prompt para IA
+  package.json
+  tsconfig.json
+```
+
+### Configuracao
+
+Variaveis de ambiente:
+
+```env
+WOOAPI_BASE_URL=http://localhost:3000
+WOOAPI_API_KEY=woo_sua_api_key
+WOOAPI_INSTANCE_ID=17
+```
+
+### Ferramentas disponiveis (17 tools)
+
+| Categoria | Tool | Descricao |
+|-----------|------|-----------|
+| **Messaging** | `send_message` | Enviar texto WhatsApp |
+| | `send_media` | Enviar midia (imagem/audio/video/doc) |
+| | `send_buttons` | Enviar botoes interativos (ate 3) |
+| | `send_list` | Enviar lista interativa com secoes |
+| | `send_reply` | Responder citando mensagem |
+| | `send_location` | Compartilhar localizacao |
+| **Groups** | `get_groups` | Listar grupos |
+| | `get_group_info` | Detalhes do grupo |
+| | `create_group` | Criar grupo |
+| | `add_group_participants` | Adicionar participantes |
+| | `remove_group_participants` | Remover participantes |
+| | `promote_group_participants` | Promover a admin |
+| | `demote_group_participants` | Rebaixar admin |
+| **Contacts** | `get_contacts` | Listar contatos |
+| | `get_contact_info` | Detalhes do contato |
+| | `check_recipient` | Verificar se numero esta no WhatsApp |
+| **Instances** | `get_instances` | Listar instancias |
+| | `get_instance_status` | Status da conexao |
+| | `get_conversations` | Listar conversas |
+| | `get_conversation_messages` | Mensagens da conversa |
+| | `get_messages` | Todas as mensagens |
+
+### Resources disponiveis (3 resources)
+
+| URI | Descricao |
+|-----|-----------|
+| `wooapi://conversations` | Lista todas as conversas da conta |
+| `wooapi://instances` | Lista todas as instancias da conta |
+| `wooapi://messages` | Lista todas as mensagens da conta |
+
+### Prompts disponiveis (4 prompts)
+
+| Nome | Descricao | Argumentos |
+|------|-----------|------------|
+| `customer_support_agent` | Agente de atendimento via WhatsApp | `instanceId`, `language` (pt-BR/en) |
+| `broadcast_campaign` | Campanha de disparo em massa | `instanceId`, `audience` |
+| `group_management` | Gerenciamento de grupos | `instanceId`, `action` |
+| `contact_research` | Pesquisa de contatos | `instanceId` |
+
+### Uso com Claude Desktop
+
+Adicione ao `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "wooapi": {
+      "command": "node",
+      "args": ["caminho/para/mcp-server/dist/index.js"],
+      "env": {
+        "WOOAPI_BASE_URL": "http://localhost:3000",
+        "WOOAPI_API_KEY": "woo_sua_api_key",
+        "WOOAPI_INSTANCE_ID": "17"
+      }
+    }
+  }
+}
+```
+
+### Uso com Cursor
+
+Nas configuracoes do Cursor, adicione um MCP Server apontando para:
+
+```
+comando: node
+argumentos: [caminho/para/mcp-server/dist/index.js]
+variaveis:
+  WOOAPI_BASE_URL: http://localhost:3000
+  WOOAPI_API_KEY: woo_sua_api_key
+  WOOAPI_INSTANCE_ID: 17
+```
+
+### Desenvolvimento
+
+```bash
+cd mcp-server
+npm install
+npm run dev    # tsx watch -- hot reload
+npm run build  # compilar para dist/
+npm start      # rodar versao compilada
+```
+
 ## Observacao Comercial
 
-A WooAPI e uma solucao de automacao para WhatsApp baseada em sessoes conectadas pelo cliente. O uso deve respeitar consentimento, politicas comerciais, limites de envio, boas praticas anti-spam e termos aplicaveis. Botoes nativos oficiais nao fazem parte do produto vendavel desta versao; use texto, links, midia e webhooks.
+A WooAPI e uma solucao de automacao para WhatsApp baseada em sessoes conectadas pelo cliente. O uso deve respeitar consentimento, politicas comerciais, limites de envio, boas praticas anti-spam, termos aplicaveis e a LGPD. Botoes nativos oficiais nao fazem parte do produto vendavel desta versao; use texto, links, midia e webhooks.

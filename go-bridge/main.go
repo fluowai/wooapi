@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -27,6 +28,7 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
 	"google.golang.org/protobuf/proto"
+	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "modernc.org/sqlite"
 )
 
@@ -47,31 +49,58 @@ type Bridge struct {
 }
 
 func NewBridge() *Bridge {
-	store.SetOSInfo("Wooapi", [3]uint32{0, 1, 0})
+	store.SetOSInfo("Windows", [3]uint32{10, 0, 22631})
 	store.DeviceProps.PlatformType = waCompanionReg.DeviceProps_DESKTOP.Enum()
-	store.BaseClientPayload.UserAgent.Manufacturer = proto.String("Wooapi")
-	store.BaseClientPayload.UserAgent.Device = proto.String("Desktop")
+	store.DeviceProps.Os = proto.String("Windows 10")
+	store.DeviceProps.RequireFullSync = proto.Bool(true)
+	store.BaseClientPayload.UserAgent.Manufacturer = proto.String("Google")
+	store.BaseClientPayload.UserAgent.Device = proto.String("Windows")
+	store.BaseClientPayload.UserAgent.OsVersion = proto.String("10.0.22631")
+	_ = os.Unsetenv("WHATSMEOW_DEVICE_NAME")
 
 	logLevel := envOrDefault("BRIDGE_LOG_LEVEL", "INFO")
 	dbLog := waLog.Stdout("Database", "ERROR", true)
-	dbPath := envOrDefault("BRIDGE_DB_PATH", "wooapi_bridge.db")
-	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(1)&_pragma=busy_timeout(15000)&_pragma=journal_mode(WAL)", dbPath)
-	container, err := sqlstore.New(context.Background(), "sqlite", dsn, dbLog)
+
+	databaseURL := os.Getenv("DATABASE_URL")
+	var driverName string
+	var dsn string
+	if databaseURL != "" {
+		driverName = "pgx"
+		dsn = databaseURL
+	} else {
+		driverName = "sqlite"
+		dbPath := envOrDefault("BRIDGE_DB_PATH", "wooapi_bridge.db")
+		dsn = fmt.Sprintf("file:%s?_pragma=foreign_keys(1)&_pragma=busy_timeout(15000)&_pragma=journal_mode(WAL)", dbPath)
+	}
+
+	container, err := sqlstore.New(context.Background(), driverName, dsn, dbLog)
 	if err != nil {
 		panic(err)
 	}
-	db, err := sql.Open("sqlite", dsn)
+	db, err := sql.Open(driverName, dsn)
 	if err != nil {
 		panic(err)
 	}
-	if _, err = db.Exec(`
-		CREATE TABLE IF NOT EXISTS wooapi_instance_devices (
-			instance_id INTEGER PRIMARY KEY,
-			jid TEXT NOT NULL,
-			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-		)
-	`); err != nil {
-		panic(err)
+	if driverName == "sqlite" {
+		if _, err = db.Exec(`
+			CREATE TABLE IF NOT EXISTS wooapi_instance_devices (
+				instance_id INTEGER PRIMARY KEY,
+				jid TEXT NOT NULL,
+				updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+			)
+		`); err != nil {
+			panic(err)
+		}
+	} else {
+		if _, err = db.Exec(`
+			CREATE TABLE IF NOT EXISTS wooapi_instance_devices (
+				instance_id INTEGER PRIMARY KEY,
+				jid TEXT NOT NULL,
+				updated_at TIMESTAMPTZ DEFAULT NOW()
+			)
+		`); err != nil {
+			panic(err)
+		}
 	}
 
 	mediaCache := envOrDefault("BRIDGE_MEDIA_CACHE_DIR", "media-cache")
@@ -289,6 +318,25 @@ func (b *Bridge) enrichMessage(msg *events.Message, instanceID int) map[string]i
 	senderJID := msg.Info.Sender
 	isGroup := chatJID.Server == types.GroupServer
 
+	// Resolve LID → phone number if sender is a LID JID
+	if senderJID.Server == types.HiddenUserServer {
+		client := b.clients[instanceID]
+		if client != nil && client.Store != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			phoneJID, err := client.Store.LIDs.GetPNForLID(ctx, senderJID)
+			cancel()
+			if err == nil && phoneJID.User != "" {
+				info["LID"] = senderJID.User
+				info["lid"] = senderJID.User
+				info["ResolvedPhone"] = phoneJID.User
+				info["resolvedPhone"] = phoneJID.User
+				// Ensure raw_sender_jid is populated
+				info["SenderJID"] = senderJID.String()
+				info["senderJID"] = senderJID.String()
+			}
+		}
+	}
+
 	// 1. Resolve nome do grupo
 	if isGroup {
 		b.mu.Lock()
@@ -330,9 +378,13 @@ func (b *Bridge) enrichMessage(msg *events.Message, instanceID int) map[string]i
 		}
 	}
 
-	// 3. Adiciona número formatado do remetente
-	if senderJID.User != "" {
-		formatted := formatBrazilianNumber(senderJID.User)
+	// 3. Adiciona número formatado do remetente (usa telefone resolvido se for LID)
+	phoneForDisplay := senderJID.User
+	if resolvedPhone, ok := info["resolvedPhone"].(string); ok && resolvedPhone != "" {
+		phoneForDisplay = resolvedPhone
+	}
+	if phoneForDisplay != "" {
+		formatted := formatBrazilianNumber(phoneForDisplay)
 		info["FormattedNumber"] = formatted
 		info["formattedNumber"] = formatted
 		out["FormattedNumber"] = formatted
@@ -556,6 +608,13 @@ func (b *Bridge) prepareRecipient(client *whatsmeow.Client, jidText string) (typ
 			normalized := strings.TrimPrefix(candidate, "+")
 			for _, item := range resp {
 				if item.IsIn && strings.TrimPrefix(item.Query, "+") == normalized && item.JID.User != "" {
+					// Tenta resolver para LID (Linked ID) se disponível
+					lidCtx, lidCancel := context.WithTimeout(context.Background(), 3*time.Second)
+					lidJID, err := client.Store.LIDs.GetLIDForPN(lidCtx, item.JID)
+					lidCancel()
+					if err == nil && lidJID.User != "" {
+						return lidJID, nil
+					}
 					return item.JID, nil
 				}
 			}
@@ -642,6 +701,56 @@ func onlyDigits(value string) string {
 		}
 	}
 	return out.String()
+}
+
+func isReachoutTimelockError(err error) bool {
+	return err != nil &&
+		errors.Is(err, whatsmeow.ErrServerReturnedError) &&
+		strings.HasSuffix(err.Error(), " 463")
+}
+
+func sendWithPreWarm(client *whatsmeow.Client, ctx context.Context, target types.JID, msg *waProto.Message) (whatsmeow.SendResponse, error) {
+	isUserJID := target.Server == types.DefaultUserServer || target.Server == types.LegacyUserServer || target.Server == types.HiddenUserServer
+	if isUserJID {
+		preWarmCtx, preWarmCancel := context.WithTimeout(context.Background(), 3*time.Second)
+		client.SubscribePresence(preWarmCtx, target)
+		preWarmCancel()
+	}
+	resp, err := client.SendMessage(ctx, target, msg)
+	if err != nil && isReachoutTimelockError(err) && isUserJID {
+		fmt.Printf("[WARN] Error 463 on send to %s, retrying once after SubscribePresence\n", target)
+		preWarmCtx, preWarmCancel := context.WithTimeout(context.Background(), 3*time.Second)
+		_ = client.SubscribePresence(preWarmCtx, target)
+		preWarmCancel()
+		time.Sleep(500 * time.Millisecond)
+		resp, err = client.SendMessage(ctx, target, msg)
+		if err != nil {
+			err = fmt.Errorf("%w: envio rejeitado (erro 463). O contato precisa enviar mensagem primeiro ou a conta pode estar restrita. Peça para o contato enviar uma mensagem para este número.", err)
+		}
+	}
+	return resp, err
+}
+
+func (b *Bridge) checkAccountRestriction(client *whatsmeow.Client) map[string]interface{} {
+	result := map[string]interface{}{
+		"connected":  client.IsConnected(),
+		"loggedIn":   client.IsLoggedIn(),
+	}
+	if client.Store != nil {
+		result["jid"] = client.Store.GetJID().ToNonAD().String()
+		result["pushName"] = client.Store.PushName
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	info, err := client.GetUserInfo(ctx, []types.JID{client.Store.GetJID().ToNonAD()})
+	if err == nil {
+		ownJID := client.Store.GetJID().ToNonAD()
+		if userInfo, ok := info[ownJID]; ok {
+			result["devices"] = len(userInfo.Devices)
+			result["status"] = userInfo.Status
+		}
+	}
+	return result
 }
 
 func (b *Bridge) handleStatus(w http.ResponseWriter, r *http.Request) {
@@ -857,12 +966,9 @@ func (b *Bridge) handleSend(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
 	defer cancel()
-	lidMigrationTimestamp := client.Store.LIDMigrationTimestamp
-	client.Store.LIDMigrationTimestamp = 0
-	resp, err := client.SendMessage(ctx, targetJid, &waProto.Message{
+	resp, err := sendWithPreWarm(client, ctx, targetJid, &waProto.Message{
 		Conversation: proto.String(req.Text),
 	})
-	client.Store.LIDMigrationTimestamp = lidMigrationTimestamp
 
 	if err != nil {
 		http.Error(w, err.Error(), 500)
@@ -1060,14 +1166,11 @@ func (b *Bridge) handleSendButtons(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
 	defer cancel()
-	lidMigrationTimestamp := client.Store.LIDMigrationTimestamp
-	client.Store.LIDMigrationTimestamp = 0
 	msg := &waProto.Message{InteractiveMessage: interactiveMsg}
 	if !hasURLButton {
 		msg = &waProto.Message{ButtonsMessage: legacyMsg}
 	}
-	resp, err := client.SendMessage(ctx, targetJid, msg)
-	client.Store.LIDMigrationTimestamp = lidMigrationTimestamp
+	resp, err := sendWithPreWarm(client, ctx, targetJid, msg)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -1188,12 +1291,9 @@ func (b *Bridge) handleSendList(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
 	defer cancel()
-	lidMigrationTimestamp := client.Store.LIDMigrationTimestamp
-	client.Store.LIDMigrationTimestamp = 0
-	resp, err := client.SendMessage(ctx, targetJid, &waProto.Message{
+	resp, err := sendWithPreWarm(client, ctx, targetJid, &waProto.Message{
 		InteractiveMessage: interactiveMsg,
 	})
-	client.Store.LIDMigrationTimestamp = lidMigrationTimestamp
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -1309,7 +1409,7 @@ func (b *Bridge) handleSendMedia(w http.ResponseWriter, r *http.Request) {
 	}
 	sendCtx, sendCancel := context.WithTimeout(context.Background(), 35*time.Second)
 	defer sendCancel()
-	sendResp, err := client.SendMessage(sendCtx, targetJid, msg)
+	sendResp, err := sendWithPreWarm(client, sendCtx, targetJid, msg)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -1365,6 +1465,38 @@ func (b *Bridge) handleHealth(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (b *Bridge) handleDiagnosticsRestriction(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if !b.authorized(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	vars := mux.Vars(r)
+	id, _ := strconv.Atoi(vars["id"])
+	accountID, _ := strconv.Atoi(r.URL.Query().Get("account_id"))
+
+	b.mu.Lock()
+	client, ok := b.clients[id]
+	b.mu.Unlock()
+
+	if !ok {
+		restoredClient, err := b.ensureUsableClient(id, accountID, "")
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"connected": false, "loggedIn": false, "error": err.Error(),
+			})
+			return
+		}
+		client = restoredClient
+	}
+
+	result := b.checkAccountRestriction(client)
+	b.mu.Lock()
+	result["connecting"] = b.connecting[id]
+	b.mu.Unlock()
+	json.NewEncoder(w).Encode(result)
+}
+
 func main() {
 	bridge := NewBridge()
 	r := mux.NewRouter()
@@ -1377,6 +1509,7 @@ func main() {
 	r.HandleFunc("/instances/{id}/send-buttons", bridge.handleSendButtons).Methods("POST")
 	r.HandleFunc("/instances/{id}/send-list", bridge.handleSendList).Methods("POST")
 	r.HandleFunc("/instances/{id}/send-media", bridge.handleSendMedia).Methods("POST")
+	r.HandleFunc("/instances/{id}/diagnostics/restriction", bridge.handleDiagnosticsRestriction).Methods("GET")
 	bridge.registerAdvancedRoutes(r)
 	r.HandleFunc("/instances/{id}/logout", bridge.handleLogout).Methods("POST")
 

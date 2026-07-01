@@ -175,7 +175,7 @@ func advancedJID(client *whatsmeow.Client, req advancedRequest) (types.JID, erro
 func sendAdvanced(client *whatsmeow.Client, target types.JID, message *waProto.Message) (whatsmeow.SendResponse, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
 	defer cancel()
-	return client.SendMessage(ctx, target, message)
+	return sendWithPreWarm(client, ctx, target, message)
 }
 
 func (b *Bridge) handleSendLocation(w http.ResponseWriter, r *http.Request) {

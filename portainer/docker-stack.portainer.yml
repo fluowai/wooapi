@@ -1,0 +1,273 @@
+version: "3.8"
+
+x-wooapi-image: &wooapi_image ghcr.io/fluowai/wooapi:latest
+
+x-wooapi-env: &wooapi_env
+  NODE_ENV: production
+  APP_ENV: production
+  REQUIRE_PRODUCTION_READY: ${REQUIRE_PRODUCTION_READY:-false}
+  PORT: 3000
+  APP_URL: "https://painel.wooapi.com.br"
+  CORS_ORIGIN: "https://painel.wooapi.com.br,https://wooapi.com.br,https://wooapi.consultio.com.br"
+  ALLOWED_ORIGINS: "https://painel.wooapi.com.br,https://wooapi.com.br,https://wooapi.consultio.com.br"
+  SESSION_TOKEN_TTL_HOURS: "${SESSION_TOKEN_TTL_HOURS:-12}"
+  MAX_UPLOAD_SIZE_MB: "${MAX_UPLOAD_SIZE_MB:-25}"
+  DATA_DIR: /data
+  UPLOAD_DIR: /data/uploads
+  SQLITE_FILENAME: database.db
+  DB_TYPE: postgresql
+  # Para Supabase pooler, use sslmode=require&uselibpqcompat=true na DATABASE_URL.
+  DATABASE_URL: "${DATABASE_URL:?set DATABASE_URL}"
+  PGSSLMODE: require
+  SUPABASE_URL: "${SUPABASE_URL:-}"
+  SUPABASE_ANON_KEY: "${SUPABASE_ANON_KEY:-}"
+  SUPABASE_SERVICE_ROLE_KEY: "${SUPABASE_SERVICE_ROLE_KEY:-}"
+  JWT_SECRET: "${JWT_SECRET:?set JWT_SECRET}"
+  WEBHOOK_SECRET: "${WEBHOOK_SECRET:?set WEBHOOK_SECRET}"
+  WOOAPI_ADMIN_TOKEN: "${WOOAPI_ADMIN_TOKEN:?set WOOAPI_ADMIN_TOKEN}"
+  UAZAPI_ADMIN_TOKEN: "${WOOAPI_ADMIN_TOKEN:?set WOOAPI_ADMIN_TOKEN}"
+  BRIDGE_TOKEN: "${BRIDGE_TOKEN:?set BRIDGE_TOKEN}"
+  EXPERIMENTAL_INTERACTIVE_MESSAGES: "false"
+  REDIS_HOST: redis
+  REDIS_PORT: 6379
+  REDIS_PASSWORD: "${REDIS_PASSWORD:?set REDIS_PASSWORD}"
+  REDIS_URL: "redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD}@redis:6379"
+  REDIS_CONNECT_TIMEOUT_MS: "10000"
+  QUEUE_DRIVER: bullmq
+  DEFAULT_GLOBAL_RATE_LIMIT_PER_MINUTE: "120"
+  DEFAULT_API_RATE_LIMIT_PER_MINUTE: "60"
+  DEFAULT_ACCOUNT_RATE_LIMIT_PER_MINUTE: "300"
+  DEFAULT_INSTANCE_RATE_LIMIT_PER_MINUTE: "30"
+  DEFAULT_MESSAGE_RATE_LIMIT_PER_MINUTE: "20"
+  DEFAULT_CRITICAL_RATE_LIMIT_PER_MINUTE: "30"
+  TRAFFIC_GLOBAL_PER_MINUTE: "${TRAFFIC_GLOBAL_PER_MINUTE:-600}"
+  TRAFFIC_TENANT_PER_MINUTE: "${TRAFFIC_TENANT_PER_MINUTE:-120}"
+  TRAFFIC_INSTANCE_PER_MINUTE: "${TRAFFIC_INSTANCE_PER_MINUTE:-20}"
+  TRAFFIC_PHONE_PER_MINUTE: "${TRAFFIC_PHONE_PER_MINUTE:-12}"
+  TRAFFIC_NODE_PER_MINUTE: "${TRAFFIC_NODE_PER_MINUTE:-300}"
+  WEBHOOK_DELIVERY_TIMEOUT_MS: "10000"
+  WEBHOOK_WORKER_CONCURRENCY: "10"
+  MESSAGE_WORKER_CONCURRENCY: "5"
+  MESSAGE_SEND_ATTEMPTS: "${MESSAGE_SEND_ATTEMPTS:-5}"
+  MESSAGE_SEND_BACKOFF_MS: "${MESSAGE_SEND_BACKOFF_MS:-15000}"
+  TRAFFIC_WORKER_INLINE_DELAY_MAX_MS: "${TRAFFIC_WORKER_INLINE_DELAY_MAX_MS:-8000}"
+  MONITOR_INTERVAL_MS: "60000"
+  MONITOR_OFFLINE_CRITICAL_MINUTES: "5"
+  MONITOR_RECONNECT_COOLDOWN_MS: "300000"
+  CORE_NODE_ID: "${CORE_NODE_ID:-core-node-swarm}"
+  CORE_NODE_PROFILE: "${CORE_NODE_PROFILE:-low-risk}"
+  CORE_NODE_IP_POOL: "${CORE_NODE_IP_POOL:-default}"
+  CORE_NODE_MAX_INSTANCES: "${CORE_NODE_MAX_INSTANCES:-150}"
+  ORCHESTRATOR_INTERVAL_MS: "${ORCHESTRATOR_INTERVAL_MS:-30000}"
+  CLEANUP_LOG_RETENTION_DAYS: "30"
+  QR_EXPIRES_MINUTES: "10"
+  ORPHAN_SESSION_GRACE_MINUTES: "30"
+  BACKUP_DIR: /data/backups
+  ALLOW_RESTORE: "false"
+  DEFAULT_WEBHOOK_URL: ""
+  SMTP_HOST: ""
+  SMTP_PORT: "587"
+  SMTP_USER: ""
+  SMTP_PASS: ""
+  SMTP_FROM: "noreply@wooapi.com.br"
+  SUPPORT_INSTANCE_ID: ""
+  SUPPORT_INSTANCE_JID: ""
+  STRIPE_SECRET_KEY: ""
+  STRIPE_WEBHOOK_SECRET: ""
+
+services:
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:?set REDIS_PASSWORD}
+    environment:
+      REDIS_PASSWORD: "${REDIS_PASSWORD:?set REDIS_PASSWORD}"
+    volumes:
+      - wooapi_redis_data:/data
+    networks:
+      - wooapi_internal
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      restart_policy:
+        condition: any
+
+  wooapi:
+    image: *wooapi_image
+    environment:
+      <<: *wooapi_env
+      BRIDGE_URL: http://127.0.0.1:3001
+      NODE_URL: http://127.0.0.1:3000
+      BRIDGE_DB_PATH: /data/wooapi_bridge.db
+      BRIDGE_MEDIA_CACHE_DIR: /data/media-cache
+    volumes:
+      - wooapi_data:/data
+    networks:
+      - consultio1
+      - wooapi_internal
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=consultio1"
+        - "traefik.http.routers.wooapi.rule=Host(`painel.wooapi.com.br`) || Host(`wooapi.com.br`) || Host(`wooapi.consultio.com.br`)"
+        - "traefik.http.routers.wooapi.entrypoints=websecure"
+        - "traefik.http.routers.wooapi.tls.certresolver=letsencryptresolver"
+        - "traefik.http.routers.wooapi.priority=1"
+        - "traefik.http.routers.wooapi.service=wooapi"
+        - "traefik.http.services.wooapi.loadbalancer.server.port=3000"
+
+  wooapi-webhook-worker:
+    image: *wooapi_image
+    command: ["sh", "-c", "sleep 30 && npm run worker:webhooks"]
+    healthcheck:
+      disable: true
+    environment:
+      <<: *wooapi_env
+      BRIDGE_URL: http://wooapi:3001
+      NODE_URL: http://wooapi:3000
+      BRIDGE_DB_PATH: /data/wooapi_bridge.db
+    volumes:
+      - wooapi_data:/data
+    networks:
+      - wooapi_internal
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+
+  wooapi-message-worker:
+    image: *wooapi_image
+    command: ["sh", "-c", "sleep 30 && npm run worker:messages"]
+    healthcheck:
+      disable: true
+    environment:
+      <<: *wooapi_env
+      BRIDGE_URL: http://wooapi:3001
+      NODE_URL: http://wooapi:3000
+      BRIDGE_DB_PATH: /data/wooapi_bridge.db
+    volumes:
+      - wooapi_data:/data
+    networks:
+      - wooapi_internal
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+
+  wooapi-monitor-worker:
+    image: *wooapi_image
+    command: ["sh", "-c", "sleep 30 && npm run worker:monitor"]
+    healthcheck:
+      disable: true
+    environment:
+      <<: *wooapi_env
+      BRIDGE_URL: http://wooapi:3001
+      NODE_URL: http://wooapi:3000
+      BRIDGE_DB_PATH: /data/wooapi_bridge.db
+    volumes:
+      - wooapi_data:/data
+    networks:
+      - wooapi_internal
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+
+  wooapi-orchestrator:
+    image: *wooapi_image
+    command: ["sh", "-c", "sleep 30 && npm run worker:orchestrator"]
+    healthcheck:
+      disable: true
+    environment:
+      <<: *wooapi_env
+      BRIDGE_URL: http://wooapi:3001
+      NODE_URL: http://wooapi:3000
+      BRIDGE_DB_PATH: /data/wooapi_bridge.db
+    volumes:
+      - wooapi_data:/data
+    networks:
+      - wooapi_internal
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+
+  wooapi-alert-worker:
+    image: *wooapi_image
+    command: ["sh", "-c", "sleep 30 && npm run worker:alerts"]
+    healthcheck:
+      disable: true
+    environment:
+      <<: *wooapi_env
+      BRIDGE_URL: http://wooapi:3001
+      NODE_URL: http://wooapi:3000
+      BRIDGE_DB_PATH: /data/wooapi_bridge.db
+    volumes:
+      - wooapi_data:/data
+    networks:
+      - wooapi_internal
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+
+  wooapi-cleanup-worker:
+    image: *wooapi_image
+    command: ["sh", "-c", "sleep 30 && npm run worker:cleanup"]
+    healthcheck:
+      disable: true
+    environment:
+      <<: *wooapi_env
+      BRIDGE_URL: http://wooapi:3001
+      NODE_URL: http://wooapi:3000
+      BRIDGE_DB_PATH: /data/wooapi_bridge.db
+    volumes:
+      - wooapi_data:/data
+    networks:
+      - wooapi_internal
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+
+  wooapi-chatwoot-worker:
+    image: *wooapi_image
+    command: ["sh", "-c", "sleep 30 && npm run worker:chatwoot"]
+    healthcheck:
+      disable: true
+    environment:
+      <<: *wooapi_env
+      BRIDGE_URL: http://wooapi:3001
+      NODE_URL: http://wooapi:3000
+      BRIDGE_DB_PATH: /data/wooapi_bridge.db
+    volumes:
+      - wooapi_data:/data
+    networks:
+      - wooapi_internal
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+
+volumes:
+  wooapi_data:
+  wooapi_redis_data:
+
+networks:
+  consultio1:
+    external: true
+    name: consultio1
+  wooapi_internal:
+    driver: overlay

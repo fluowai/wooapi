@@ -1006,6 +1006,9 @@ async function migrate() {
     CREATE TABLE IF NOT EXISTS instance_webhooks (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER NOT NULL, instance_id INTEGER NOT NULL, name TEXT, url TEXT NOT NULL, secret TEXT NOT NULL, events TEXT DEFAULT '[]', is_active INTEGER DEFAULT 1, retry_enabled INTEGER DEFAULT 1, max_attempts INTEGER DEFAULT 5, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);
     CREATE TABLE IF NOT EXISTS webhook_delivery_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER, tenant_id TEXT, instance_id INTEGER, webhook_id INTEGER, webhook_event_id INTEGER, event TEXT NOT NULL, url TEXT NOT NULL, status_code INTEGER, success INTEGER DEFAULT 0, attempt INTEGER DEFAULT 1, request_payload TEXT, response_body TEXT, error TEXT, duration_ms INTEGER, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);
     CREATE TABLE IF NOT EXISTS api_request_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER, instance_id INTEGER, method TEXT, path TEXT, status_code INTEGER, ip TEXT, user_agent TEXT, duration_ms INTEGER, error TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);
+    CREATE TABLE IF NOT EXISTS data_consent (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER NOT NULL, user_id INTEGER, purpose TEXT NOT NULL, consent_type TEXT NOT NULL DEFAULT 'lgpd', granted INTEGER DEFAULT 1, granted_at DATETIME DEFAULT CURRENT_TIMESTAMP, revoked_at DATETIME, ip_address TEXT, user_agent TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);
+    CREATE TABLE IF NOT EXISTS data_retention_policies (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER, instance_id INTEGER, data_type TEXT NOT NULL, retention_days INTEGER NOT NULL DEFAULT 90, action TEXT NOT NULL DEFAULT 'delete', enabled INTEGER DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);
+    CREATE TABLE IF NOT EXISTS data_subject_requests (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER NOT NULL, request_type TEXT NOT NULL, status TEXT DEFAULT 'pending', requested_by TEXT, notes TEXT, processed_at DATETIME, expires_at DATETIME, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);
     CREATE TABLE IF NOT EXISTS connection_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER, instance_id INTEGER, event TEXT, status TEXT, details_json TEXT DEFAULT '{}', created_at DATETIME DEFAULT CURRENT_TIMESTAMP);
     CREATE TABLE IF NOT EXISTS message_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER, instance_id INTEGER, message_id TEXT, direction TEXT, status TEXT, details_json TEXT DEFAULT '{}', created_at DATETIME DEFAULT CURRENT_TIMESTAMP);
     CREATE TABLE IF NOT EXISTS support_alerts (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER, instance_id INTEGER, severity TEXT NOT NULL, type TEXT NOT NULL, title TEXT NOT NULL, description TEXT, status TEXT DEFAULT 'open', metadata TEXT DEFAULT '{}', opened_at DATETIME DEFAULT CURRENT_TIMESTAMP, acknowledged_at DATETIME, resolved_at DATETIME);
@@ -7199,6 +7202,159 @@ const session = await requireV1Account(req, res);
       console.error("Reconnect failed:", inst.id, error);
     });
   }
+
+  // ── LGPD / Data Privacy Endpoints ──
+
+  app.get("/privacy", async (_req, res) => {
+    const filePath = path.resolve("docs/privacy.md");
+    if (fs.existsSync(filePath)) return res.type("text/markdown").sendFile(filePath);
+    return res.type("text/html").send(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Política de Privacidade</title><style>body{font-family:sans-serif;max-width:720px;margin:40px auto;padding:0 20px;line-height:1.6}</style></head><body><h1>Política de Privacidade</h1><p>Em construção. Consulte o arquivo <code>docs/privacy.md</code> para a política completa.</p></body></html>`);
+  });
+
+  app.post("/api/data/export", requireAccount, async (req: AccountRequest, res) => {
+    try {
+      const accountId = Number(req.accountId);
+      const instances = await query("SELECT id, name, phone, status, created_at FROM instances WHERE account_id = ? AND deleted_at IS NULL", [accountId]);
+      const conversations = await query("SELECT id, remote_jid, contact_phone, title, status, last_message_preview, last_message_at, created_at FROM conversations WHERE account_id = ?", [accountId]);
+      const messages = await query("SELECT id, conversation_id, direction, content_type, content_text, delivery_status, created_at FROM messages WHERE account_id = ? ORDER BY id DESC LIMIT 5000", [accountId]);
+      const leads = await query("SELECT id, name, phone, email, address, status, created_at FROM leads WHERE account_id = ?", [accountId]);
+      const consentRecords = await query("SELECT purpose, consent_type, granted, granted_at, revoked_at FROM data_consent WHERE account_id = ?", [accountId]);
+
+      const account = await get("SELECT id, name, email, account_type, status, created_at FROM accounts WHERE id = ?", [accountId]);
+      const subjectRequest = await run(
+        "INSERT INTO data_subject_requests (account_id, request_type, status, requested_by, notes) VALUES (?, 'export', 'completed', ?, ?)",
+        [accountId, req.user?.email || "api", JSON.stringify({ exportGeneratedAt: new Date().toISOString() })]
+      );
+      await run("UPDATE data_subject_requests SET processed_at = CURRENT_TIMESTAMP WHERE id = ?", [subjectRequest.lastInsertRowid]);
+
+      const exportPayload = {
+        exportedAt: new Date().toISOString(),
+        account,
+        instances,
+        conversations,
+        messages,
+        leads,
+        consentRecords
+      };
+      await audit(accountId, Number(req.user?.userId) || null, "data.export", { requestId: Number(subjectRequest.lastInsertRowid) });
+      return res.json({ success: true, requestId: Number(subjectRequest.lastInsertRowid), data: exportPayload });
+    } catch (error) {
+      return res.status(500).json({ error: sanitizePublicError(error) });
+    }
+  });
+
+  app.post("/api/data/anonymize", requireAccount, async (req: AccountRequest, res) => {
+    try {
+      const accountId = Number(req.accountId);
+      const scope = String(req.body?.scope || "account");
+      const subjectRequest = await run(
+        "INSERT INTO data_subject_requests (account_id, request_type, status, requested_by, notes) VALUES (?, 'anonymize', 'processing', ?, ?)",
+        [accountId, req.user?.email || "api", JSON.stringify({ scope, triggeredAt: new Date().toISOString() })]
+      );
+      const requestId = Number(subjectRequest.lastInsertRowid);
+
+      if (scope === "messages" || scope === "all") {
+        const msgCount = await query("SELECT COUNT(*) AS total FROM messages WHERE account_id = ?", [accountId]);
+        await run("UPDATE messages SET content_text = '[ANONYMIZED]', author_phone = NULL, author_push_name = NULL, raw_json = '{}' WHERE account_id = ?", [accountId]);
+      }
+      if (scope === "leads" || scope === "all") {
+        await run("UPDATE leads SET name = '[ANONYMIZED]', phone = NULL, email = NULL, address = NULL, custom_fields_json = '{}' WHERE account_id = ?", [accountId]);
+      }
+      if (scope === "conversations" || scope === "all") {
+        await run("UPDATE conversations SET contact_phone = NULL, contact_profile_picture_url = NULL WHERE account_id = ?", [accountId]);
+      }
+      if (scope === "account" || scope === "all") {
+        await run("UPDATE accounts SET email = CONCAT('anonymized_', id, '@anonymized.com'), name = CONCAT('Usuario ', id) WHERE id = ?", [accountId]);
+      }
+
+      await run("UPDATE data_subject_requests SET status = 'completed', processed_at = CURRENT_TIMESTAMP WHERE id = ?", [requestId]);
+      await audit(accountId, Number(req.user?.userId) || null, "data.anonymize", { requestId, scope });
+      return res.json({ success: true, requestId, scope, message: "Dados anonimizados com sucesso" });
+    } catch (error) {
+      return res.status(500).json({ error: sanitizePublicError(error) });
+    }
+  });
+
+  app.post("/api/data/consent", requireAccount, async (req: AccountRequest, res) => {
+    try {
+      const accountId = Number(req.accountId);
+      const { purpose, consent_type, granted, userId } = req.body || {};
+      if (!purpose) return res.status(400).json({ error: "purpose é obrigatório" });
+
+      if (granted === false || granted === "false") {
+        await run(
+          "UPDATE data_consent SET granted = 0, revoked_at = CURRENT_TIMESTAMP WHERE account_id = ? AND purpose = ? AND granted = 1",
+          [accountId, purpose]
+        );
+        await audit(accountId, Number(req.user?.userId) || null, "data.consent.revoked", { purpose, consentType: consent_type || "lgpd" });
+        return res.json({ success: true, granted: false, purpose });
+      }
+
+      const consent = await get(
+        "SELECT id FROM data_consent WHERE account_id = ? AND purpose = ? AND user_id IS ? AND granted = 1",
+        [accountId, purpose, userId || null]
+      );
+      if (consent) return res.json({ success: true, granted: true, purpose, message: "Consentimento já registrado" });
+
+      const info = await run(
+        "INSERT INTO data_consent (account_id, user_id, purpose, consent_type, granted, ip_address, user_agent) VALUES (?, ?, ?, ?, 1, ?, ?)",
+        [accountId, userId || null, purpose, consent_type || "lgpd", req.ip || null, req.headers["user-agent"] || null]
+      );
+      await audit(accountId, Number(req.user?.userId) || null, "data.consent.granted", { purpose, consentType: consent_type || "lgpd", consentId: Number(info.lastInsertRowid) });
+      return res.json({ success: true, granted: true, purpose, consentId: Number(info.lastInsertRowid) });
+    } catch (error) {
+      return res.status(500).json({ error: sanitizePublicError(error) });
+    }
+  });
+
+  app.get("/api/data/consent/:userId", requireAccount, async (req: AccountRequest, res) => {
+    try {
+      const accountId = Number(req.accountId);
+      const userId = req.params.userId === "me" ? null : Number(req.params.userId);
+      const rows = await query(
+        "SELECT id, purpose, consent_type, granted, granted_at, revoked_at, created_at FROM data_consent WHERE account_id = ? AND (? IS NULL OR user_id = ?) ORDER BY id DESC",
+        [accountId, userId, userId]
+      );
+      return res.json({ success: true, data: rows });
+    } catch (error) {
+      return res.status(500).json({ error: sanitizePublicError(error) });
+    }
+  });
+
+  app.get("/api/data/requests", requireAccount, async (req: AccountRequest, res) => {
+    try {
+      const rows = await query(
+        "SELECT id, request_type, status, requested_by, notes, processed_at, expires_at, created_at FROM data_subject_requests WHERE account_id = ? ORDER BY id DESC LIMIT 50",
+        [req.accountId]
+      );
+      return res.json({ success: true, data: rows });
+    } catch (error) {
+      return res.status(500).json({ error: sanitizePublicError(error) });
+    }
+  });
+
+  // ── Retention Policy Scheduler ──
+  setInterval(async () => {
+    try {
+      const policies = await query("SELECT * FROM data_retention_policies WHERE enabled = 1");
+      for (const policy of policies) {
+        const cutoff = new Date(Date.now() - Number(policy.retention_days) * 86400000).toISOString();
+        if (policy.data_type === "messages") {
+          await run("DELETE FROM messages WHERE account_id = ? AND ? = 0 OR (instance_id = ? AND created_at < ?)", [policy.account_id, policy.instance_id || 0, policy.instance_id || 0, cutoff]);
+        } else if (policy.data_type === "logs") {
+          await run("DELETE FROM message_logs WHERE account_id = ? AND (? = 0 OR instance_id = ?) AND created_at < ?", [policy.account_id, policy.instance_id || 0, policy.instance_id || 0, cutoff]);
+          await run("DELETE FROM connection_logs WHERE account_id = ? AND (? = 0 OR instance_id = ?) AND created_at < ?", [policy.account_id, policy.instance_id || 0, policy.instance_id || 0, cutoff]);
+        } else if (policy.data_type === "webhooks") {
+          await run("DELETE FROM webhook_events WHERE account_id = ? AND (? = 0 OR instance_id = ?) AND created_at < ?", [policy.account_id, policy.instance_id || 0, policy.instance_id || 0, cutoff]);
+          await run("DELETE FROM webhook_delivery_logs WHERE account_id = ? AND (? = 0 OR instance_id = ?) AND created_at < ?", [policy.account_id, policy.instance_id || 0, policy.instance_id || 0, cutoff]);
+        } else if (policy.data_type === "consent") {
+          await run("DELETE FROM data_consent WHERE account_id = ? AND revoked_at IS NOT NULL AND revoked_at < ?", [policy.account_id, cutoff]);
+        }
+      }
+    } catch (e) {
+      console.error("[RETENTION_POLICY_SCHEDULER]", e);
+    }
+  }, 3600000).unref();
 
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({ server: { middlewareMode: true }, appType: "spa" });
