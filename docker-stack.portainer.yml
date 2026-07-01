@@ -17,21 +17,21 @@ x-wooapi-env: &wooapi_env
   SQLITE_FILENAME: database.db
   DB_TYPE: postgresql
   # Para Supabase pooler, use sslmode=require&uselibpqcompat=true na DATABASE_URL.
-  DATABASE_URL: "${DATABASE_URL:?set DATABASE_URL}"
+  DATABASE_URL: "${DATABASE_URL:-postgresql://user:pass@host:5432/db}"
   PGSSLMODE: require
   SUPABASE_URL: "${SUPABASE_URL:-}"
   SUPABASE_ANON_KEY: "${SUPABASE_ANON_KEY:-}"
   SUPABASE_SERVICE_ROLE_KEY: "${SUPABASE_SERVICE_ROLE_KEY:-}"
-  JWT_SECRET: "${JWT_SECRET:?set JWT_SECRET}"
-  WEBHOOK_SECRET: "${WEBHOOK_SECRET:?set WEBHOOK_SECRET}"
-  WOOAPI_ADMIN_TOKEN: "${WOOAPI_ADMIN_TOKEN:?set WOOAPI_ADMIN_TOKEN}"
-  UAZAPI_ADMIN_TOKEN: "${WOOAPI_ADMIN_TOKEN:?set WOOAPI_ADMIN_TOKEN}"
-  BRIDGE_TOKEN: "${BRIDGE_TOKEN:?set BRIDGE_TOKEN}"
+  JWT_SECRET: "${JWT_SECRET:-change-this-jwt-secret}"
+  WEBHOOK_SECRET: "${WEBHOOK_SECRET:-change-this-webhook-secret}"
+  WOOAPI_ADMIN_TOKEN: "${WOOAPI_ADMIN_TOKEN:-change-this-wooapi-admin-token}"
+  UAZAPI_ADMIN_TOKEN: "${WOOAPI_ADMIN_TOKEN:-change-this-wooapi-admin-token}"
+  BRIDGE_TOKEN: "${BRIDGE_TOKEN:-change-this-bridge-token}"
   EXPERIMENTAL_INTERACTIVE_MESSAGES: "false"
   REDIS_HOST: redis
   REDIS_PORT: 6379
-  REDIS_PASSWORD: "${REDIS_PASSWORD:?set REDIS_PASSWORD}"
-  REDIS_URL: "redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD}@redis:6379"
+  REDIS_PASSWORD: "${REDIS_PASSWORD:-change-this-redis-password}"
+  REDIS_URL: "redis://:${REDIS_PASSWORD:-change-this-redis-password}@redis:6379"
   REDIS_CONNECT_TIMEOUT_MS: "10000"
   QUEUE_DRIVER: bullmq
   DEFAULT_GLOBAL_RATE_LIMIT_PER_MINUTE: "120"
@@ -106,7 +106,7 @@ services:
     volumes:
       - wooapi_data:/data
     networks:
-      - consultio1
+      - woopanel1
       - wooapi_internal
     healthcheck:
       test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
@@ -120,7 +120,7 @@ services:
         condition: any
       labels:
         - "traefik.enable=true"
-        - "traefik.docker.network=consultio1"
+        - "traefik.docker.network=woopanel1"
         - "traefik.http.routers.wooapi.rule=Host(`painel.wooapi.com.br`) || Host(`wooapi.com.br`) || Host(`wooapi.consultio.com.br`)"
         - "traefik.http.routers.wooapi.entrypoints=websecure"
         - "traefik.http.routers.wooapi.tls.certresolver=letsencryptresolver"
@@ -266,8 +266,8 @@ volumes:
   wooapi_redis_data:
 
 networks:
-  consultio1:
+  woopanel1:
     external: true
-    name: consultio1
+    name: woopanel1
   wooapi_internal:
     driver: overlay
