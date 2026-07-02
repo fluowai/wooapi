@@ -1,7 +1,7 @@
 version: "3.8"
 
 x-wooapi-image: &wooapi_image ghcr.io/fluowai/wooapi:latest
-x-wozapi-v2-image: &wozapi_v2_image devlikeapro/waha-plus:latest
+x-wozapi-v2-image: &wozapi_v2_image ${WOZAPI_V2_IMAGE:-devlikeapro/waha:latest}
 
 x-wooapi-env: &wooapi_env
   NODE_ENV: production
