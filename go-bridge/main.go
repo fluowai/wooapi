@@ -69,7 +69,7 @@ func NewBridge() *Bridge {
 	var dsn string
 	if databaseURL != "" {
 		driverName = "pgx"
-		dsn = databaseURL
+		dsn = preparePostgresDSN(databaseURL)
 	} else {
 		driverName = "sqlite"
 		dbPath := envOrDefault("BRIDGE_DB_PATH", "wooapi_bridge.db")
@@ -131,6 +131,19 @@ func envOrDefault(key string, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func preparePostgresDSN(dsn string) string {
+	parsed, err := url.Parse(dsn)
+	if err != nil {
+		return dsn
+	}
+	query := parsed.Query()
+	if query.Get("default_query_exec_mode") == "" {
+		query.Set("default_query_exec_mode", "simple_protocol")
+	}
+	parsed.RawQuery = query.Encode()
+	return parsed.String()
 }
 
 func (b *Bridge) sendToNode(event string, instanceId int, accountId int, payload interface{}) {

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strconv"
@@ -61,7 +62,7 @@ func NewEngine() *Engine {
 	var dsn string
 	if databaseURL != "" {
 		driverName = "pgx"
-		dsn = databaseURL
+		dsn = preparePostgresDSN(databaseURL)
 	} else {
 		driverName = "sqlite"
 		dbPath := envOrDefault("ENGINE_DB_PATH", "engine_v2.db")
@@ -121,6 +122,19 @@ func envOrDefault(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func preparePostgresDSN(dsn string) string {
+	parsed, err := url.Parse(dsn)
+	if err != nil {
+		return dsn
+	}
+	query := parsed.Query()
+	if query.Get("default_query_exec_mode") == "" {
+		query.Set("default_query_exec_mode", "simple_protocol")
+	}
+	parsed.RawQuery = query.Encode()
+	return parsed.String()
 }
 
 func (e *Engine) authorized(r *http.Request) bool {
