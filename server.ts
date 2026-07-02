@@ -7588,6 +7588,44 @@ const session = await requireV1Account(req, res);
     }
   }, 3600000).unref();
 
+  function hostnameOf(req: express.Request) {
+    return String(req.hostname || req.headers.host || "").split(":")[0].toLowerCase();
+  }
+
+  function isPanelAsset(pathname: string) {
+    return pathname.startsWith("/assets/") || pathname === "/favicon.ico" || pathname === "/manifest.json";
+  }
+
+  app.use((req, res, next) => {
+    if (!["GET", "HEAD"].includes(req.method)) return next();
+    const host = hostnameOf(req);
+    const pathname = req.path || "/";
+    if (pathname.startsWith("/api/") || pathname.startsWith("/socket.io/") || pathname.startsWith("/uploads/")) return next();
+    if (isPanelAsset(pathname)) return next();
+
+    if (host === "docs.wozapi.com.br") {
+      return res.redirect(302, "/docs");
+    }
+
+    if (host === "wozapi.com.br" || host === "www.wozapi.com.br") {
+      return res.type("html").sendFile(path.resolve("docs/wooapi-sales.html"));
+    }
+
+    if (host === "webhook.wozapi.com.br") {
+      if (pathname === "/" || pathname === "/health") {
+        return res.json({
+          ok: true,
+          service: "wozapi-webhook",
+          message: "Endpoint publico de webhooks Wozapi ativo",
+          api: "/api"
+        });
+      }
+      return res.status(404).json({ error: "Endpoint de webhook nao encontrado" });
+    }
+
+    return next();
+  });
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({ server: { middlewareMode: true }, appType: "spa" });
     app.use(vite.middlewares);
