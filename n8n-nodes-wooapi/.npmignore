@@ -1,0 +1,6 @@
+.vscode
+*.ts
+!*.d.ts
+!*.js.map
+node_modules
+test

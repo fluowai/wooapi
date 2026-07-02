@@ -1,4 +1,4 @@
-# WooAPI com Supabase
+# Wozapi com Supabase
 
 ## 1. Criar o banco
 
@@ -8,7 +8,7 @@ No painel do Supabase, abra **SQL Editor** e execute:
 -- conteúdo de migrations/20260525_supabase_saas_schema.sql
 ```
 
-Esse schema cria a base SaaS do WooAPI:
+Esse schema cria a base SaaS do Wozapi:
 
 - planos
 - contas
@@ -20,13 +20,13 @@ Esse schema cria a base SaaS do WooAPI:
 - integrações n8n, Chatwoot e Typebot
 - sessões de suporte e uso
 
-## 2. Configurar conexão no WooAPI
+## 2. Configurar conexão no Wozapi
 
 No Supabase, copie a connection string PostgreSQL em:
 
 **Project Settings > Database > Connection string**
 
-Depois configure no ambiente do WooAPI:
+Depois configure no ambiente do Wozapi:
 
 ```env
 DATABASE_URL=postgresql://postgres:SENHA@HOST:5432/postgres
@@ -36,7 +36,7 @@ Para produção, use a connection string recomendada pelo Supabase para servidor
 
 ## 3. Segurança
 
-Use o banco pelo backend do WooAPI, com credenciais de servidor. Não exponha `DATABASE_URL`, `service_role`, JWT secret ou chaves internas no frontend.
+Use o banco pelo backend do Wozapi, com credenciais de servidor. Não exponha `DATABASE_URL`, `service_role`, JWT secret ou chaves internas no frontend.
 
 ## 4. Cotas
 

@@ -50,9 +50,16 @@ import IntegrationManager from './components/IntegrationManager';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import QRCode from 'qrcode';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
+}
+
+function displayEngineName(engine?: string | null) {
+  if (engine === 'wozapi-2') return 'Wozapi 2.0';
+  if (engine === 'wozapi-1' || engine === 'wooapi') return 'Wozapi 1.0';
+  return 'Wozapi';
 }
 
 // --- Types ---
@@ -69,7 +76,7 @@ interface Lead {
 interface Instance {
   id: number;
   name: string;
-  engine?: 'wooapi';
+  engine?: 'wooapi' | 'wozapi-1' | 'wozapi-2';
   status: 'created' | 'qr_pending' | 'connecting' | 'connected' | 'disconnected' | 'logged_out' | 'error' | 'blocked' | 'paused' | 'none' | 'qr' | 'open' | 'close' | 'reconnecting';
   qr?: string;
   phone?: string;
@@ -221,6 +228,12 @@ interface WhatsAppStatus {
 const isConnectedStatus = (status?: string) => status === 'connected' || status === 'open';
 const isQrStatus = (status?: string) => status === 'qr_pending' || status === 'qr';
 const isDisconnectedStatus = (status?: string) => ['created', 'disconnected', 'logged_out', 'none', 'close', 'error'].includes(String(status || ''));
+const isQrImage = (qr?: string | null) => String(qr || '').startsWith('data:image/');
+const qrToDisplayImage = async (qr?: string | null) => {
+  const value = String(qr || '').trim();
+  if (!value || isQrImage(value)) return value;
+  return QRCode.toDataURL(value, { margin: 1, width: 320 });
+};
 const findConnectedInstance = (instances: Instance[], preferredId?: number) =>
   instances.find(inst => inst.id === preferredId && isConnectedStatus(inst.status)) ||
   instances.find(inst => isConnectedStatus(inst.status));
@@ -685,7 +698,7 @@ const SuperAdmin = ({ apiFetch, onImpersonate }: { apiFetch: any, onImpersonate:
             <h3 className="text-lg font-bold mb-4">Saúde do SaaS</h3>
             <div className="space-y-3 text-sm">
               <p className="flex justify-between"><span className="text-slate-500">API Node</span><span className="font-bold text-primary">Online</span></p>
-              <p className="flex justify-between"><span className="text-slate-500">WooAPI Core</span><span className="font-bold">{overview?.connected_instances ? 'Ativo' : 'Monitorar'}</span></p>
+              <p className="flex justify-between"><span className="text-slate-500">Wozapi Core</span><span className="font-bold">{overview?.connected_instances ? 'Ativo' : 'Monitorar'}</span></p>
               <p className="flex justify-between"><span className="text-slate-500">Webhooks falhos</span><span className="font-bold">{overview?.failed_webhooks || 0}</span></p>
             </div>
           </Card>
@@ -716,7 +729,7 @@ const SuperAdminPanel = ({ apiFetch, onImpersonate, onLogout, onBackToAccount, a
   const [accounts, setAccounts] = useState<any[]>([]);
   const [plans, setPlans] = useState<any[]>([]);
   const [overview, setOverview] = useState<any>(null);
-  const [wooapiMonitor, setWooapiMonitor] = useState<any>(null);
+  const [WozapiMonitor, setWozapiMonitor] = useState<any>(null);
   const [externalIntegrations, setExternalIntegrations] = useState<any[]>([]);
   const [integrationAccounts, setIntegrationAccounts] = useState<any[]>([]);
   const [selectedIntegrationId, setSelectedIntegrationId] = useState<number | null>(null);
@@ -725,7 +738,7 @@ const SuperAdminPanel = ({ apiFetch, onImpersonate, onLogout, onBackToAccount, a
   const [selectedPartnerId, setSelectedPartnerId] = useState<number | null>(null);
   const [partnerReferrals, setPartnerReferrals] = useState<any[]>([]);
   const [partnerCommissions, setPartnerCommissions] = useState<any[]>([]);
-  const [activeSubTab, setActiveSubTab] = useState<'dashboard' | 'wooapi' | 'accounts' | 'plans' | 'monitor' | 'webhooks' | 'external_integrations' | 'partners' | 'audit' | 'settings'>('dashboard');
+  const [activeSubTab, setActiveSubTab] = useState<'dashboard' | 'Wozapi' | 'accounts' | 'plans' | 'monitor' | 'webhooks' | 'external_integrations' | 'partners' | 'audit' | 'settings'>('dashboard');
   const [newPlan, setNewPlan] = useState({
     name: '',
     price: 0,
@@ -774,7 +787,7 @@ const SuperAdminPanel = ({ apiFetch, onImpersonate, onLogout, onBackToAccount, a
     if (Array.isArray(accs)) setAccounts(accs);
     if (Array.isArray(pls)) setPlans(pls);
     if (ovw) setOverview(ovw);
-    if (monitor) setWooapiMonitor(monitor);
+    if (monitor) setWozapiMonitor(monitor);
     if (Array.isArray(integrations)) {
       setExternalIntegrations(integrations);
       if (!selectedIntegrationId && integrations.length > 0) setSelectedIntegrationId(integrations[0].id);
@@ -959,23 +972,23 @@ const SuperAdminPanel = ({ apiFetch, onImpersonate, onLogout, onBackToAccount, a
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
 
   useEffect(() => {
-    if (wooapiMonitor?.generated_at) {
-      setLastUpdated(wooapiMonitor.generated_at);
+    if (WozapiMonitor?.generated_at) {
+      setLastUpdated(WozapiMonitor.generated_at);
     }
-  }, [wooapiMonitor?.generated_at]);
-  const wooMetrics = wooapiMonitor?.metrics || {};
-  const wooQueues = wooapiMonitor?.queues || [];
-  const wooInstances = wooapiMonitor?.instances || [];
-  const wooWebhooks = wooapiMonitor?.webhooks || [];
-  const wooWebhookLogs = wooapiMonitor?.recent_webhook_logs || [];
-  const wooAlerts = wooapiMonitor?.alerts || [];
-  const wooLiveLogs = wooapiMonitor?.live_logs || [];
-  const wooSupportTickets = wooapiMonitor?.support_tickets || [];
-  const wooNoc = wooapiMonitor?.noc || {};
+  }, [WozapiMonitor?.generated_at]);
+  const wooMetrics = WozapiMonitor?.metrics || {};
+  const wooQueues = WozapiMonitor?.queues || [];
+  const wooInstances = WozapiMonitor?.instances || [];
+  const wooWebhooks = WozapiMonitor?.webhooks || [];
+  const wooWebhookLogs = WozapiMonitor?.recent_webhook_logs || [];
+  const wooAlerts = WozapiMonitor?.alerts || [];
+  const wooLiveLogs = WozapiMonitor?.live_logs || [];
+  const wooSupportTickets = WozapiMonitor?.support_tickets || [];
+  const wooNoc = WozapiMonitor?.noc || {};
 
   const navItems = [
     { id: 'dashboard', label: 'Visao Geral', icon: LayoutDashboard },
-    { id: 'wooapi', label: 'Saude da Plataforma', icon: Activity },
+    { id: 'Wozapi', label: 'Saude da Plataforma', icon: Activity },
     { id: 'accounts', label: 'Clientes', icon: Building2 },
     { id: 'plans', label: 'Planos', icon: CreditCard },
     { id: 'monitor', label: 'Monitoramento', icon: Activity },
@@ -1006,7 +1019,7 @@ const SuperAdminPanel = ({ apiFetch, onImpersonate, onLogout, onBackToAccount, a
           </div>
           <div>
             <p className="text-lg font-black text-red-400">Console Global</p>
-            <p className="text-[11px] font-semibold text-white/45">Super Admin WooAPI</p>
+            <p className="text-[11px] font-semibold text-white/45">Super Admin Wozapi</p>
           </div>
         </div>
 
@@ -1056,7 +1069,7 @@ const SuperAdminPanel = ({ apiFetch, onImpersonate, onLogout, onBackToAccount, a
       <section className="min-w-0 bg-[#f4f5f7] p-5 lg:p-7">
         <header className="mb-7 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <h2 className="text-2xl font-black text-slate-950">Console Global WooAPI</h2>
+            <h2 className="text-2xl font-black text-slate-950">Console Global Wozapi</h2>
             <p className="text-sm text-slate-500">Ambiente exclusivo do super admin para clientes, planos, instancias, webhooks e suporte.</p>
           </div>
           <div className={cn("flex w-fit items-center gap-2 rounded-md px-3 py-2 text-xs font-black", failedWebhooks > 0 ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700")}>
@@ -1131,11 +1144,11 @@ const SuperAdminPanel = ({ apiFetch, onImpersonate, onLogout, onBackToAccount, a
           </div>
         )}
 
-        {activeSubTab === 'wooapi' && (
+        {activeSubTab === 'Wozapi' && (
           <div className="space-y-5">
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
-                  <h2 className="text-2xl font-black text-slate-950">Central de Saude WooAPI</h2>
+                  <h2 className="text-2xl font-black text-slate-950">Central de Saude Wozapi</h2>
                   <p className="text-sm text-slate-500">Visao operacional de filas, webhooks, logs, instancias e alertas.</p>
                   {lastUpdated && <p className="mt-1 text-[10px] font-semibold text-slate-400">Ultima atualizacao: {new Date(lastUpdated).toLocaleString('pt-BR')}</p>}
                 </div>
@@ -1145,7 +1158,7 @@ const SuperAdminPanel = ({ apiFetch, onImpersonate, onLogout, onBackToAccount, a
                 </button>
               </div>
 
-            {wooapiMonitor?.generated_at && (
+            {WozapiMonitor?.generated_at && (
               <Card className={cn(
                 "overflow-hidden border-2",
                 wooNoc.severity === 'critical' ? "border-rose-300 bg-rose-50" :
@@ -1216,7 +1229,7 @@ const SuperAdminPanel = ({ apiFetch, onImpersonate, onLogout, onBackToAccount, a
               </Card>
             )}
 
-            {wooapiMonitor?.generated_at && (
+            {WozapiMonitor?.generated_at && (
               <div className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="flex items-center gap-2">
                   <span className={cn("inline-block h-3 w-3 rounded-full", wooMetrics.instances_offline > 0 ? "bg-amber-500 animate-pulse" : "bg-emerald-500")} />
@@ -1257,7 +1270,7 @@ const SuperAdminPanel = ({ apiFetch, onImpersonate, onLogout, onBackToAccount, a
                 { label: 'Falhas de msg 24h', value: wooMetrics.message_failures_24h, icon: XCircle },
                 { label: 'Webhooks ativos', value: wooMetrics.webhooks_active, icon: Webhook },
                 { label: 'Falhas webhook 24h', value: wooMetrics.webhook_failures_24h, icon: AlertCircle },
-                { label: 'Eventos WooAPI 24h', value: wooMetrics.wooapi_events_24h, icon: Activity },
+                { label: 'Eventos Wozapi 24h', value: wooMetrics.Wozapi_events_24h, icon: Activity },
                 { label: 'Webhook retrying', value: wooMetrics.webhook_retrying, icon: RefreshCw },
                 { label: 'Webhook pending', value: wooMetrics.webhook_pending, icon: Clock },
                 { label: 'Tempo medio webhook', value: `${formatNumber(wooMetrics.avg_webhook_duration_ms || 0)} ms`, icon: BarChart3 }
@@ -1278,18 +1291,18 @@ const SuperAdminPanel = ({ apiFetch, onImpersonate, onLogout, onBackToAccount, a
               <div className="mb-4 flex items-center justify-between">
                 <div>
                   <h3 className="text-lg font-black text-slate-950">Arquitetura em operacao</h3>
-                  <p className="text-sm text-slate-500">Componentes visiveis da plataforma WooAPI.</p>
+                  <p className="text-sm text-slate-500">Componentes visiveis da plataforma Wozapi.</p>
                 </div>
-                <span className="rounded-md bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">WooAPI Platform</span>
+                <span className="rounded-md bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">Wozapi Platform</span>
               </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
                 {[
-                  ['wooapi-api', 'API REST, painel e WebSocket', 'bg-blue-50 border-blue-200', 'text-blue-700'],
+                  ['Wozapi-api', 'API REST, painel e WebSocket', 'bg-blue-50 border-blue-200', 'text-blue-700'],
                   ['redis', 'Persistencia AOF para filas BullMQ', 'bg-red-50 border-red-200', 'text-red-700'],
-                  ['wooapi-webhook-worker', 'Entrega HTTP, HMAC e retry', 'bg-purple-50 border-purple-200', 'text-purple-700'],
-                  ['wooapi-message-worker', 'Envio assincrono de mensagens', 'bg-emerald-50 border-emerald-200', 'text-emerald-700'],
-                  ['wooapi-monitor-worker', 'Health check periodico das instancias', 'bg-amber-50 border-amber-200', 'text-amber-700'],
-                  ['wooapi-alert-worker', 'Regras de alerta e notificacao', 'bg-rose-50 border-rose-200', 'text-rose-700']
+                  ['Wozapi-webhook-worker', 'Entrega HTTP, HMAC e retry', 'bg-purple-50 border-purple-200', 'text-purple-700'],
+                  ['Wozapi-message-worker', 'Envio assincrono de mensagens', 'bg-emerald-50 border-emerald-200', 'text-emerald-700'],
+                  ['Wozapi-monitor-worker', 'Health check periodico das instancias', 'bg-amber-50 border-amber-200', 'text-amber-700'],
+                  ['Wozapi-alert-worker', 'Regras de alerta e notificacao', 'bg-rose-50 border-rose-200', 'text-rose-700']
                 ].map(([name, text, bg, txtColor]) => (
                   <div key={name} className={cn("rounded-md border p-4", bg)}>
                     <p className={cn("text-xs font-black uppercase tracking-wide", txtColor)}>{name}</p>
@@ -1348,7 +1361,7 @@ const SuperAdminPanel = ({ apiFetch, onImpersonate, onLogout, onBackToAccount, a
             <Card className="overflow-hidden">
                 <div className="border-b border-slate-100 p-5">
                   <h3 className="text-lg font-black">Alertas de Suporte</h3>
-                  <p className="text-sm text-slate-500">Alertas reais e alertas calculados pela Central WooAPI.</p>
+                  <p className="text-sm text-slate-500">Alertas reais e alertas calculados pela Central Wozapi.</p>
                 </div>
                 <div className="divide-y divide-slate-100">
                   {wooAlerts.slice(0, 10).map((alert: any) => (
@@ -1574,7 +1587,7 @@ const SuperAdminPanel = ({ apiFetch, onImpersonate, onLogout, onBackToAccount, a
                     <div key={hook.id} className="p-4">
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <p className="font-black text-slate-900">{displayText(hook.name, 'Webhook WooAPI')}</p>
+                          <p className="font-black text-slate-900">{displayText(hook.name, 'Webhook Wozapi')}</p>
                           <p className="text-xs text-slate-500">{displayText(hook.account_name, `Conta #${hook.account_id}`)} - {displayText(hook.instance_name, `Instancia #${hook.instance_id}`)}</p>
                         </div>
                         <span className={cn("rounded px-2 py-1 text-[10px] font-black", hook.is_active ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500")}>
@@ -1769,7 +1782,7 @@ const SuperAdminPanel = ({ apiFetch, onImpersonate, onLogout, onBackToAccount, a
               <h3 className="mb-4 text-lg font-black">Saude do SaaS</h3>
               <div className="space-y-3 text-sm">
                 <p className="flex justify-between"><span className="text-slate-500">API Node</span><span className="font-black text-emerald-600">Online</span></p>
-                <p className="flex justify-between"><span className="text-slate-500">WooAPI Core</span><span className="font-black">{connectedInstances ? 'Ativo' : 'Monitorar'}</span></p>
+                <p className="flex justify-between"><span className="text-slate-500">Wozapi Core</span><span className="font-black">{connectedInstances ? 'Ativo' : 'Monitorar'}</span></p>
                 <p className="flex justify-between"><span className="text-slate-500">Webhooks falhos</span><span className="font-black">{formatNumber(failedWebhooks)}</span></p>
                 <p className="flex justify-between"><span className="text-slate-500">Mensagens no mes</span><span className="font-black">{formatNumber(overview?.messages_month || 0)}</span></p>
               </div>
@@ -2078,7 +2091,7 @@ const SuperAdminPanel = ({ apiFetch, onImpersonate, onLogout, onBackToAccount, a
               { title: 'Feature Flags', text: 'Area reservada para ativar recursos por plano ou cliente.', icon: Flag },
               { title: 'Suporte', text: 'Use o acesso por conta para diagnostico sem trocar senha do cliente.', icon: LifeBuoy },
               { title: 'Analytics', text: 'Mensagens, instancias conectadas, churn e receita estimada.', icon: BarChart3 },
-              { title: 'Seguranca', text: 'Segredos JWT, webhook e WooAPI Core devem ser fortes em producao.', icon: ShieldCheck }
+              { title: 'Seguranca', text: 'Segredos JWT, webhook e Wozapi Core devem ser fortes em producao.', icon: ShieldCheck }
             ].map(({ title, text, icon: Icon }) => (
               <Card key={title} className="p-6">
                 <Icon className="mb-4 text-red-600" size={24} />
@@ -2109,8 +2122,8 @@ export default function App() {
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const initialReferralCode = (() => {
     try {
-      const code = new URLSearchParams(window.location.search).get('ref') || localStorage.getItem('wooapi_referral_code') || '';
-      if (code) localStorage.setItem('wooapi_referral_code', code);
+      const code = new URLSearchParams(window.location.search).get('ref') || localStorage.getItem('Wozapi_referral_code') || '';
+      if (code) localStorage.setItem('Wozapi_referral_code', code);
       return code;
     } catch {
       return '';
@@ -2174,18 +2187,25 @@ export default function App() {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [wsStatus, setWsStatus] = useState<WhatsAppStatus>({ status: 'none', qr: null });
   const [qrModalInstance, setQrModalInstance] = useState<Instance | null>(null);
+  const [qrModalImage, setQrModalImage] = useState('');
   const [testerInstance, setTesterInstance] = useState<Instance | null>(null);
+  const [createInstanceModalOpen, setCreateInstanceModalOpen] = useState(false);
+  const [newInstanceName, setNewInstanceName] = useState('');
+  const [newInstanceEngine, setNewInstanceEngine] = useState<'wozapi-1' | 'wozapi-2'>('wozapi-1');
+  const [creatingInstance, setCreatingInstance] = useState(false);
   const [msgFilter, setMsgFilter] = useState<'all' | 'contact' | 'group'>('all');
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [liveMessages, setLiveMessages] = useState<any[]>([]);
   const [liveQueueMetrics, setLiveQueueMetrics] = useState<any>(null);
   const [supportTickets, setSupportTickets] = useState<any[]>([]);
   const [supportChatMessages, setSupportChatMessages] = useState<any[]>([
-    { sender: 'ai', message: 'Oi, sou o agente de suporte WooAPI. Me diga o que aconteceu e qual instancia esta afetada; eu vou tentar resolver antes de abrir ticket.', created_at: new Date().toISOString() }
+    { sender: 'ai', message: 'Oi, sou o agente de suporte Wozapi. Me diga o que aconteceu e qual instancia esta afetada; eu vou tentar resolver antes de abrir ticket.', created_at: new Date().toISOString() }
   ]);
   const [supportInput, setSupportInput] = useState('');
   const [supportInstanceId, setSupportInstanceId] = useState<number | ''>('');
   const [supportSending, setSupportSending] = useState(false);
+  const [apiOnline, setApiOnline] = useState(true);
+  const [wsOnline, setWsOnline] = useState(false);
 
   // Search State
   const [searchQuery, setSearchQuery] = useState('');
@@ -2254,8 +2274,9 @@ export default function App() {
     let res: Response;
     try {
       res = await fetch(finalUrl, { ...options, headers });
+      setApiOnline(true);
     } catch (error) {
-      console.error(`API Error: request failed for ${url}`, error);
+      setApiOnline(false);
       return null;
     }
     if (res.status === 401) {
@@ -2272,7 +2293,7 @@ export default function App() {
 
     // Non-JSON response (likely an error page)
     const text = await res.text();
-    console.error(`API Error (${res.status}): Non-JSON response from ${url}`, text.substring(0, 100));
+    console.warn(`API ${res.status}: resposta inesperada em ${url}`, text.substring(0, 100));
     return null;
   };
 
@@ -2358,14 +2379,29 @@ export default function App() {
     const data = await apiFetch('/api/whatsapp/instances');
     if (data) {
       setInstances(data);
-      if (!selectedWooInstanceId && data.length > 0) setSelectedWooInstanceId(data[0].id);
+      const hasSelectedInstance = data.some((inst: any) => Number(inst.id) === Number(selectedWooInstanceId));
+      if (data.length > 0 && (!selectedWooInstanceId || !hasSelectedInstance)) {
+        setSelectedWooInstanceId(data[0].id);
+      }
+      if (data.length === 0 && selectedWooInstanceId) {
+        setSelectedWooInstanceId(null);
+        setInstanceWebhooks([]);
+        setWebhookLogs([]);
+        setWebhookEvents([]);
+      }
     }
   };
 
-  const fetchWooApiPanel = async (instanceId = selectedWooInstanceId) => {
+  const fetchWozapiPanel = async (instanceId = selectedWooInstanceId) => {
     const monitor = await apiFetch('/api/admin/wooapi-monitor');
     if (monitor) setPlatformMonitor(monitor);
     if (!instanceId) return;
+    if (instances.length > 0 && !instances.some((inst: any) => Number(inst.id) === Number(instanceId))) {
+      setInstanceWebhooks([]);
+      setWebhookLogs([]);
+      setWebhookEvents([]);
+      return;
+    }
     const [hooks, logs, events] = await Promise.all([
       apiFetch(`/api/whatsapp/instances/${instanceId}/webhooks`),
       apiFetch(`/api/whatsapp/instances/${instanceId}/webhook-logs`),
@@ -2477,7 +2513,7 @@ export default function App() {
     if (!selectedWooInstanceId) return;
     await apiFetch(`/api/admin/platform/instances/${selectedWooInstanceId}/assign`, { method: 'POST', body: JSON.stringify({}) });
     await fetchInstances();
-    fetchWooApiPanel(selectedWooInstanceId);
+    fetchWozapiPanel(selectedWooInstanceId);
   };
 
   const transitionSelectedInstance = async (trigger: string) => {
@@ -2487,7 +2523,7 @@ export default function App() {
       body: JSON.stringify({ trigger, metadata: { source: 'front_panel' } })
     });
     await fetchInstances();
-    fetchWooApiPanel(selectedWooInstanceId);
+    fetchWozapiPanel(selectedWooInstanceId);
   };
 
   const toggleNodeDrain = async (node: any) => {
@@ -2495,7 +2531,7 @@ export default function App() {
       method: 'POST',
       body: JSON.stringify({ enabled: !Number(node.drain_mode || 0) })
     });
-    fetchWooApiPanel(selectedWooInstanceId);
+    fetchWozapiPanel(selectedWooInstanceId);
   };
 
   const createWebhook = async () => {
@@ -2510,7 +2546,7 @@ export default function App() {
       })
     });
     setNewWebhook({ name: 'Webhook n8n', url: '', events: 'message.received,message.sent,instance.disconnected', retry_enabled: true, max_attempts: 5 });
-    fetchWooApiPanel(selectedWooInstanceId);
+    fetchWozapiPanel(selectedWooInstanceId);
   };
 
   const toggleWebhook = async (webhook: any) => {
@@ -2518,13 +2554,13 @@ export default function App() {
       method: 'PATCH',
       body: JSON.stringify({ is_active: !webhook.is_active })
     });
-    fetchWooApiPanel(webhook.instance_id);
+    fetchWozapiPanel(webhook.instance_id);
   };
 
   const deleteWebhook = async (webhook: any) => {
     if (!confirm('Remover este webhook?')) return;
     await apiFetch(`/api/whatsapp/instances/${webhook.instance_id}/webhooks/${webhook.id}`, { method: 'DELETE' });
-    fetchWooApiPanel(webhook.instance_id);
+    fetchWozapiPanel(webhook.instance_id);
   };
 
   const testWebhook = async (webhook: any) => {
@@ -2532,12 +2568,12 @@ export default function App() {
       method: 'POST',
       body: JSON.stringify({ source: 'painel', sent_at: new Date().toISOString() })
     });
-    fetchWooApiPanel(webhook.instance_id);
+    fetchWozapiPanel(webhook.instance_id);
   };
 
   const retryWebhookLog = async (logId: number) => {
     await apiFetch(`/api/whatsapp/webhook-logs/${logId}/retry`, { method: 'POST' });
-    fetchWooApiPanel();
+    fetchWozapiPanel();
   };
 
   const fetchConversations = async () => {
@@ -2668,15 +2704,15 @@ export default function App() {
       });
 
       newSocket.on("connect", () => {
-        console.log("[WS] connected");
+        setWsOnline(true);
       });
 
       newSocket.on("disconnect", (reason) => {
-        console.log("[WS] disconnected:", reason);
+        setWsOnline(false);
       });
 
       newSocket.on("connect_error", (err) => {
-        console.log("[WS] connection error:", err.message);
+        setWsOnline(false);
       });
 
       newSocket.on("wooapi:heartbeat", (data: any) => {
@@ -2831,7 +2867,7 @@ export default function App() {
 
   useEffect(() => {
     if (auth && selectedWooInstanceId) {
-      fetchWooApiPanel(selectedWooInstanceId);
+      fetchWozapiPanel(selectedWooInstanceId);
       if (activeTab === 'groups') fetchGroups(selectedWooInstanceId);
     }
   }, [auth, selectedWooInstanceId, activeTab]);
@@ -2847,6 +2883,25 @@ export default function App() {
       fetchGroupDetails(selectedGroupJid);
     }
   }, [auth, activeTab, selectedGroupJid]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const rawQr = qrModalInstance?.qr;
+    if (!rawQr || !isQrStatus(qrModalInstance?.status)) {
+      setQrModalImage('');
+      return;
+    }
+    qrToDisplayImage(rawQr)
+      .then(image => {
+        if (!cancelled) setQrModalImage(image);
+      })
+      .catch(() => {
+        if (!cancelled) setQrModalImage('');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [qrModalInstance?.qr, qrModalInstance?.status]);
 
   useEffect(() => {
     if (!auth || !qrModalInstance?.id) return;
@@ -2952,7 +3007,7 @@ export default function App() {
     fetchAgents();
   };
 
-  const createInstance = async (name: string, engine: 'wooapi' = 'wooapi') => {
+  const createInstance = async (name: string, engine: 'wozapi-1' | 'wozapi-2' = 'wozapi-1') => {
     const data = await apiFetch('/api/whatsapp/instances', {
       method: 'POST',
       body: JSON.stringify({ name, engine })
@@ -2978,6 +3033,33 @@ export default function App() {
     }
     fetchInstances();
     if (canUseResellerPanel()) fetchResellerOverview();
+  };
+
+  const openCreateInstanceModal = () => {
+    setNewInstanceName('');
+    setNewInstanceEngine('wozapi-1');
+    setCreateInstanceModalOpen(true);
+  };
+
+  const closeCreateInstanceModal = () => {
+    if (creatingInstance) return;
+    setCreateInstanceModalOpen(false);
+    setNewInstanceName('');
+    setNewInstanceEngine('wozapi-1');
+  };
+
+  const submitCreateInstance = async () => {
+    const name = newInstanceName.trim();
+    if (!name || creatingInstance) return;
+    setCreatingInstance(true);
+    try {
+      await createInstance(name, newInstanceEngine);
+      setCreateInstanceModalOpen(false);
+      setNewInstanceName('');
+      setNewInstanceEngine('wozapi-1');
+    } finally {
+      setCreatingInstance(false);
+    }
   };
 
   const createClientAccount = async () => {
@@ -3421,10 +3503,8 @@ export default function App() {
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
         <Card className="w-full max-w-md p-8">
           <div className="text-center mb-8">
-            <div className="w-16 h-16 bg-primary text-white rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-slate-200">
-              <Send size={32} />
-            </div>
-            <h1 className="text-2xl font-bold text-slate-900">WooAPI</h1>
+            <img src="/wozapi-logo.png" alt="Wozapi" className="h-20 mx-auto mb-4 object-contain" />
+            <h1 className="text-2xl font-bold text-slate-900">Wozapi</h1>
             <p className="text-slate-500">Acesse sua plataforma de automação</p>
           </div>
 
@@ -3537,10 +3617,8 @@ export default function App() {
       {/* Sidebar */}
       <aside className="w-64 bg-sidebar-bg border-r border-white/10 p-6 flex flex-col gap-8">
         <div className="flex items-center gap-3 px-2">
-          <div className="w-10 h-10 bg-primary rounded-md flex items-center justify-center text-white">
-            <Send size={24} />
-          </div>
-          <h1 className="text-xl font-semibold tracking-tight text-white">WooAPI</h1>
+          <img src="/wozapi-logo.png" alt="Wozapi" className="h-9 object-contain" />
+          <h1 className="text-xl font-semibold tracking-tight text-white">Wozapi</h1>
         </div>
 
         <nav className="flex flex-col gap-2">
@@ -3591,9 +3669,32 @@ export default function App() {
 
       {/* Main Content */}
       <main className={cn("flex-1 bg-main-bg", activeTab === 'messages' ? "overflow-hidden p-0" : "overflow-y-auto p-6")}>
+        {activeTab !== 'messages' && (!apiOnline || !wsOnline) && (
+          <div className="mb-5 flex flex-col gap-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="mt-0.5 shrink-0 text-amber-600" size={18} />
+              <div>
+                <p className="font-black">Conexao com o painel em recuperacao</p>
+                <p className="text-amber-800">
+                  {!apiOnline
+                    ? 'A API local ficou indisponivel por alguns segundos. Confira se o servidor esta rodando em localhost:3000.'
+                    : 'O tempo real desconectou e esta tentando reconectar automaticamente.'}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-amber-900 px-3 text-xs font-black text-white hover:bg-amber-800"
+            >
+              <RefreshCw size={14} />
+              Recarregar
+            </button>
+          </div>
+        )}
         {isTrialAccount && activeTab !== 'messages' && (
           <div className="mb-5 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            <strong>Conta teste:</strong> esta conta dura 2 dias e sera excluida automaticamente com instancias, mensagens, webhooks e logs criados no teste.
+            <strong>Conta teste:</strong> esta conta dura 1 hora e sera excluida automaticamente com instancias, mensagens, webhooks e logs criados no teste.
             {trialEndsAt && (
               <span className="ml-1 font-bold">
                 Tempo restante aproximado: {trialHoursLeft}h {trialMinutesLeft}min.
@@ -3611,7 +3712,7 @@ export default function App() {
               className="space-y-8"
             >
               <header>
-                <h2 className="text-3xl font-bold text-slate-900">Painel da Conta WooAPI</h2>
+                <h2 className="text-3xl font-bold text-slate-900">Painel da Conta Wozapi</h2>
                 <p className="text-slate-500 mt-1">Operacao da sua conta: instancias, mensagens, clientes, integracoes e configuracoes.</p>
               </header>
 
@@ -3690,7 +3791,7 @@ export default function App() {
             >
               <header>
                 <h2 className="text-3xl font-bold">Clientes SaaS</h2>
-                <p className="text-slate-500">Crie contas clientes com cotas próprias de instâncias WooAPI.</p>
+                <p className="text-slate-500">Crie contas clientes com cotas próprias de instâncias Wozapi.</p>
               </header>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -3770,15 +3871,15 @@ export default function App() {
               className="space-y-6"
             >
               <header>
-                <h2 className="text-3xl font-bold">Integrações WooAPI</h2>
+                <h2 className="text-3xl font-bold">Integrações Wozapi</h2>
                 <p className="text-slate-500">Use a mesma instância para n8n, Chatwoot, Typebot, webhook e websocket.</p>
               </header>
 
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {[
                   ['n8n', 'Use HTTP Request com a API key da instância para enviar mensagens e receba eventos no webhook do workflow.'],
-                  ['Chatwoot', 'Configure o webhook da caixa de entrada apontando para WooAPI ou use a API para entregar mensagens ao inbox.'],
-                  ['Typebot', 'Chame endpoints WooAPI em blocos HTTP e use webhooks para continuar fluxos quando uma resposta chegar.']
+                  ['Chatwoot', 'Configure o webhook da caixa de entrada apontando para Wozapi ou use a API para entregar mensagens ao inbox.'],
+                  ['Typebot', 'Chame endpoints Wozapi em blocos HTTP e use webhooks para continuar fluxos quando uma resposta chegar.']
                 ].map(([title, text]) => (
                   <Card key={title} className="p-5">
                     <h3 className="text-lg font-bold">{title}</h3>
@@ -4584,7 +4685,7 @@ export default function App() {
                           </div>
                           <div className="rounded-md border border-slate-200 bg-main-bg p-4">
                             <p className="text-[10px] font-extrabold uppercase text-slate-500">Tipo</p>
-                            <p className="mt-1 truncate text-sm font-black text-slate-950">{selectedWooInstance?.engine || 'WooAPI'}</p>
+                            <p className="mt-1 truncate text-sm font-black text-slate-950">{displayEngineName(selectedWooInstance?.engine)}</p>
                           </div>
                         </div>
                         <div className="mt-4 rounded-md border border-slate-200 bg-main-bg p-4">
@@ -5478,7 +5579,7 @@ export default function App() {
             >
               <header className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                 <div>
-                  <h2 className="text-3xl font-bold">Suporte WooAPI</h2>
+                  <h2 className="text-3xl font-bold">Suporte Wozapi</h2>
                   <p className="text-slate-500">Agente de diagnostico primeiro, ticket humano quando precisar.</p>
                 </div>
                 <button onClick={fetchSupportTickets} className="flex items-center gap-2 rounded-md bg-slate-900 px-4 py-3 text-sm font-bold text-white hover:bg-primary">
@@ -5588,7 +5689,7 @@ export default function App() {
             >
               <header className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                 <div>
-                  <h2 className="text-3xl font-bold">Central WooAPI</h2>
+                  <h2 className="text-3xl font-bold">Central Wozapi</h2>
                   <p className="text-slate-500">Webhooks, eventos, logs de entrega e integrações da sua instância.</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
@@ -5601,7 +5702,7 @@ export default function App() {
                       <option key={inst.id} value={inst.id}>{inst.name} - {instanceStatusLabel(inst.status)}</option>
                     ))}
                   </select>
-                  <button onClick={() => fetchWooApiPanel()} className="flex items-center gap-2 rounded-md bg-slate-900 px-4 py-3 text-sm font-bold text-white hover:bg-primary">
+                  <button onClick={() => fetchWozapiPanel()} className="flex items-center gap-2 rounded-md bg-slate-900 px-4 py-3 text-sm font-bold text-white hover:bg-primary">
                     <RefreshCw size={16} />
                     Atualizar
                   </button>
@@ -5742,7 +5843,7 @@ export default function App() {
                     </div>
                     <div>
                       <label className="mb-1 block text-xs font-black uppercase text-slate-400">URL</label>
-                      <input className="w-full rounded-md border border-slate-200 bg-slate-50 px-4 py-2 text-sm" placeholder="https://n8n.cliente.com/webhook/wooapi" value={newWebhook.url} onChange={(e) => setNewWebhook({ ...newWebhook, url: e.target.value })} />
+                      <input className="w-full rounded-md border border-slate-200 bg-slate-50 px-4 py-2 text-sm" placeholder="https://n8n.cliente.com/webhook/Wozapi" value={newWebhook.url} onChange={(e) => setNewWebhook({ ...newWebhook, url: e.target.value })} />
                     </div>
                     <div>
                       <label className="mb-1 block text-xs font-black uppercase text-slate-400">Eventos</label>
@@ -5844,7 +5945,7 @@ export default function App() {
 
                 <Card className="overflow-hidden">
                   <div className="border-b border-slate-100 p-5">
-                    <h3 className="text-lg font-bold">Eventos WooAPI</h3>
+                    <h3 className="text-lg font-bold">Eventos Wozapi</h3>
                     <p className="text-sm text-slate-500">Eventos normalizados que geram entregas e integrações.</p>
                   </div>
                   <div className="divide-y divide-slate-100">
@@ -5866,9 +5967,9 @@ export default function App() {
                 <h3 className="mb-4 text-lg font-bold">Integrações prontas para copiar</h3>
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
                   {[
-                    ['n8n', 'Webhook Node recebe eventos WooAPI; HTTP Request responde usando a API key da instância.'],
+                    ['n8n', 'Webhook Node recebe eventos Wozapi; HTTP Request responde usando a API key da instância.'],
                     ['Typebot', 'HTTP Request chama /api/v1/messages/send-text com variáveis como {{telefone}} e {{nome}}.'],
-                    ['Chatwoot', 'Callback envia respostas para WooAPI; sincronização fica em fila dedicada.']
+                    ['Chatwoot', 'Callback envia respostas para Wozapi; sincronização fica em fila dedicada.']
                   ].map(([title, text]) => (
                     <div key={title} className="rounded-md border border-slate-200 bg-slate-50 p-4">
                       <p className="font-black text-slate-900">{title}</p>
@@ -5950,10 +6051,7 @@ export default function App() {
                   <p className="text-slate-500">Gerencie suas instâncias WhatsApp com API key, webhook e websocket próprios.</p>
                 </div>
                 <button
-                  onClick={() => {
-                    const name = prompt("Nome da nova instância:");
-                    if (name) createInstance(name, 'wooapi');
-                  }}
+                  onClick={openCreateInstanceModal}
                   className="px-6 py-3 bg-primary text-white font-bold rounded-xl hover:bg-primary/90 transition-all flex items-center gap-2 shadow-lg shadow-slate-200"
                 >
                   <Plus size={20} />
@@ -6125,6 +6223,136 @@ export default function App() {
       </main>
 
       <AnimatePresence>
+        {createInstanceModalOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) closeCreateInstanceModal();
+            }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96, y: 18 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: 18 }}
+              transition={{ duration: 0.18 }}
+              className="w-full max-w-lg overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl"
+            >
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  submitCreateInstance();
+                }}
+              >
+                <div className="border-b border-slate-100 bg-slate-50 px-6 py-5">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-primary text-white shadow-sm">
+                        <Smartphone size={22} />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-black text-slate-950">Nova instancia WhatsApp</h3>
+                        <p className="text-sm text-slate-500">Crie uma sessao, gere o QR Code e copie a API key em seguida.</p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={closeCreateInstanceModal}
+                      disabled={creatingInstance}
+                      className="rounded-md p-2 text-slate-400 transition-colors hover:bg-white hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      aria-label="Fechar"
+                    >
+                      <XCircle size={22} />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-5 px-6 py-6">
+                  <label className="block">
+                    <span className="mb-2 block text-xs font-black uppercase tracking-wide text-slate-500">Nome da instancia</span>
+                    <input
+                      autoFocus
+                      value={newInstanceName}
+                      onChange={(event) => setNewInstanceName(event.target.value)}
+                      placeholder="Ex: Atendimento Comercial"
+                      className="h-12 w-full rounded-md border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-900 outline-none transition focus:border-primary focus:ring-4 focus:ring-primary/10"
+                      maxLength={60}
+                      disabled={creatingInstance}
+                    />
+                  </label>
+
+                  <div>
+                    <span className="mb-2 block text-xs font-black uppercase tracking-wide text-slate-500">Versao do motor</span>
+                    <div className="grid grid-cols-2 gap-3">
+                      {[
+                        { value: 'wozapi-1' as const, title: 'Wozapi 1.0', detail: 'Core atual' },
+                        { value: 'wozapi-2' as const, title: 'Wozapi 2.0', detail: 'Novo core' }
+                      ].map((option) => {
+                        const selected = newInstanceEngine === option.value;
+                        return (
+                          <button
+                            key={option.value}
+                            type="button"
+                            onClick={() => setNewInstanceEngine(option.value)}
+                            disabled={creatingInstance}
+                            className={cn(
+                              "h-20 rounded-md border px-4 text-left transition disabled:cursor-not-allowed disabled:opacity-50",
+                              selected ? "border-primary bg-primary/10 text-slate-950 ring-4 ring-primary/10" : "border-slate-200 bg-white text-slate-700 hover:border-primary/50"
+                            )}
+                          >
+                            <span className="block text-sm font-black">{option.title}</span>
+                            <span className="mt-1 block text-xs font-semibold text-slate-500">{option.detail}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    {[
+                      ['1', 'QR Code'],
+                      ['2', 'API key'],
+                      ['3', 'Webhook']
+                    ].map(([step, label]) => (
+                      <div key={step} className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                        <span className="mb-2 flex h-6 w-6 items-center justify-center rounded bg-primary text-[10px] font-black text-white">{step}</span>
+                        <p className="text-xs font-black text-slate-700">{label}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">
+                    Apos criar, o painel abre o QR Code automaticamente para conectar o WhatsApp.
+                  </div>
+                </div>
+
+                <div className="flex flex-col-reverse gap-3 border-t border-slate-100 bg-white px-6 py-5 sm:flex-row sm:justify-end">
+                  <button
+                    type="button"
+                    onClick={closeCreateInstanceModal}
+                    disabled={creatingInstance}
+                    className="inline-flex h-11 items-center justify-center rounded-md border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!newInstanceName.trim() || creatingInstance}
+                    className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-primary px-5 text-sm font-black text-white shadow-lg shadow-emerald-100 transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
+                  >
+                    {creatingInstance ? <Loader2 className="animate-spin" size={18} /> : <Plus size={18} />}
+                    {creatingInstance ? 'Criando...' : 'Criar instancia'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
         {qrModalInstance && (
           <motion.div
             initial={{ opacity: 0 }}
@@ -6150,9 +6378,9 @@ export default function App() {
                 </div>
 
                 <div className="py-4 flex flex-col items-center gap-6">
-                  {isQrStatus(qrModalInstance.status) && qrModalInstance.qr ? (
+                  {isQrStatus(qrModalInstance.status) && qrModalImage ? (
                     <div className="bg-white p-4 rounded-2xl border-4 border-slate-200 shadow-inner">
-                      <img src={qrModalInstance.qr} alt="QR Code" className="w-64 h-64" />
+                      <img src={qrModalImage} alt="QR Code" className="w-64 h-64" />
                     </div>
                   ) : (
                     <div className="w-64 h-64 bg-slate-50 rounded-2xl flex flex-col items-center justify-center gap-4 text-slate-400">

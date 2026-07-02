@@ -1,19 +1,19 @@
-# WooAPI - Documentacao Tecnica
+# Wozapi - Documentacao Tecnica
 
-Esta documentacao descreve a API publica da WooAPI para envio e recebimento de mensagens WhatsApp por instancias independentes, webhooks, integracoes, campanhas, CRM e administracao comercial.
+Esta documentacao descreve a API publica da Wozapi para envio e recebimento de mensagens WhatsApp por instancias independentes, webhooks, integracoes, campanhas, CRM e administracao comercial.
 
-Base local:
+Base oficial da API e do painel:
 
 ```text
-http://localhost:3002
+https://painel.wozapi.com.br
 ```
 
-Em producao, use o dominio configurado em `APP_URL`.
+Site de vendas: `https://wozapi.com.br`.
 
 Links publicos:
 
 ```text
-Pagina publica: /docs/wooapi
+Pagina publica: /docs/wozapi
 Swagger:        /docs
 OpenAPI:        /openapi.json
 Postman:        /postman/wooapi.postman_collection.json
@@ -52,7 +52,7 @@ Use essa chave nos endpoints da instancia.
 
 ### Webhook
 
-Webhook e a URL do sistema externo que recebera eventos da WooAPI, como mensagem recebida, mensagem enviada, desconexao, QR expirado e falhas operacionais.
+Webhook e a URL do sistema externo que recebera eventos da Wozapi, como mensagem recebida, mensagem enviada, desconexao, QR expirado e falhas operacionais.
 
 ## Autenticacao
 
@@ -89,7 +89,7 @@ Authorization: Bearer jwt_da_conta
 
 ### Endpoints administrativos externos
 
-Use o token administrativo WooAPI:
+Use o token administrativo Wozapi:
 
 ```http
 admintoken: valor_do_WOOAPI_ADMIN_TOKEN
@@ -100,12 +100,12 @@ Configure `WOOAPI_ADMIN_TOKEN` no ambiente de producao.
 ## Criar Instancia
 
 ```bash
-curl -X POST http://localhost:3002/api/v1/instances \
+curl -X POST https://painel.wozapi.com.br/api/v1/instances \
   -H "Authorization: Bearer JWT_DA_CONTA" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "Atendimento Comercial",
-    "webhook_url": "https://seu-n8n.com/webhook/wooapi"
+    "webhook_url": "https://seu-n8n.com/webhook/wozapi"
   }'
 ```
 
@@ -122,25 +122,25 @@ Resposta:
     "api_key": "woo_xxx",
     "webhook_secret": "whsec_xxx",
     "webhook": {
-      "webhooks_url": "https://api.seudominio.com/api/v1/instances/17/webhooks",
-      "webhook_events_url": "https://api.seudominio.com/api/v1/instances/17/webhook-events",
-      "webhook_logs_url": "https://api.seudominio.com/api/v1/instances/17/webhook-logs",
-      "webhook_test_url": "https://api.seudominio.com/api/v1/instances/17/webhook/test",
-      "signing_header": "X-WooAPI-Signature",
+      "webhooks_url": "https://painel.wozapi.com.br/api/v1/instances/17/webhooks",
+      "webhook_events_url": "https://painel.wozapi.com.br/api/v1/instances/17/webhook-events",
+      "webhook_logs_url": "https://painel.wozapi.com.br/api/v1/instances/17/webhook-logs",
+      "webhook_test_url": "https://painel.wozapi.com.br/api/v1/instances/17/webhook/test",
+      "signing_header": "X-Wooapi-Signature",
       "signature_format": "sha256=<hmac_sha256_raw_body_hex>",
       "secret": "whsec_xxx"
     },
     "default_webhook": {
       "id": 1,
       "name": "Webhook padrao",
-      "url": "https://seu-n8n.com/webhook/wooapi",
+      "url": "https://seu-n8n.com/webhook/wozapi",
       "is_active": true
     }
   }
 }
 ```
 
-Se `webhook_url` for enviado na criacao, a WooAPI ja cadastra esse destino como primeiro webhook ativo.
+Se `webhook_url` for enviado na criacao, a Wozapi ja cadastra esse destino como primeiro webhook ativo.
 
 ## Fluxo Basico
 
@@ -170,14 +170,14 @@ POST   /api/v1/instances/:id/api-key/regenerate
 ### Conectar
 
 ```bash
-curl -X POST http://localhost:3002/api/v1/instances/17/connect \
+curl -X POST https://painel.wozapi.com.br/api/v1/instances/17/connect \
   -H "x-api-key: woo_sua_api_key"
 ```
 
 ### Status
 
 ```bash
-curl http://localhost:3002/api/v1/instances/17/status \
+curl https://painel.wozapi.com.br/api/v1/instances/17/status \
   -H "x-api-key: woo_sua_api_key"
 ```
 
@@ -201,12 +201,12 @@ POST /api/v1/send
 ### Enviar texto
 
 ```bash
-curl -X POST http://localhost:3002/api/v1/instances/17/send-text \
+curl -X POST https://painel.wozapi.com.br/api/v1/instances/17/send-text \
   -H "x-api-key: woo_sua_api_key" \
   -H "Content-Type: application/json" \
   -d '{
     "number": "5548999999999",
-    "text": "Ola pela WooAPI"
+    "text": "Ola pela Wozapi"
   }'
 ```
 
@@ -221,7 +221,7 @@ Quando aceito, a API retorna HTTP `202` com `queued: true`, `jobId`, `pendingMes
 ```json
 {
   "number": "5548999999999",
-  "text": "Ola pela WooAPI",
+  "text": "Ola pela Wozapi",
   "async": true
 }
 ```
@@ -229,13 +229,13 @@ Quando aceito, a API retorna HTTP `202` com `queued: true`, `jobId`, `pendingMes
 ### Enviar midia
 
 ```bash
-curl -X POST http://localhost:3002/api/v1/instances/17/send-media \
+curl -X POST https://painel.wozapi.com.br/api/v1/instances/17/send-media \
   -H "x-api-key: woo_sua_api_key" \
   -H "Content-Type: application/json" \
   -d '{
     "number": "5548999999999",
     "mediaUrl": "https://example.com/arquivo.pdf",
-    "caption": "Arquivo enviado pela WooAPI",
+    "caption": "Arquivo enviado pela Wozapi",
     "mime_type": "application/pdf",
     "file_name": "arquivo.pdf",
     "async": true
@@ -245,14 +245,14 @@ curl -X POST http://localhost:3002/api/v1/instances/17/send-media \
 ### Enviar localizacao
 
 ```bash
-curl -X POST http://localhost:3002/api/v1/instances/17/send-location \
+curl -X POST https://painel.wozapi.com.br/api/v1/instances/17/send-location \
   -H "x-api-key: woo_sua_api_key" \
   -H "Content-Type: application/json" \
   -d '{
     "number": "5548999999999",
     "latitude": -27.5949,
     "longitude": -48.5482,
-    "name": "WooAPI",
+    "name": "Wozapi",
     "address": "Florianopolis - SC"
   }'
 ```
@@ -260,12 +260,12 @@ curl -X POST http://localhost:3002/api/v1/instances/17/send-location \
 ### Enviar contato
 
 ```bash
-curl -X POST http://localhost:3002/api/v1/instances/17/send-contact \
+curl -X POST https://painel.wozapi.com.br/api/v1/instances/17/send-contact \
   -H "x-api-key: woo_sua_api_key" \
   -H "Content-Type: application/json" \
   -d '{
     "number": "5548999999999",
-    "name": "Atendimento WooAPI",
+    "name": "Atendimento Wozapi",
     "phone": "5548933806836"
   }'
 ```
@@ -273,7 +273,7 @@ curl -X POST http://localhost:3002/api/v1/instances/17/send-contact \
 ### Responder citando mensagem
 
 ```bash
-curl -X POST http://localhost:3002/api/v1/instances/17/send-reply \
+curl -X POST https://painel.wozapi.com.br/api/v1/instances/17/send-reply \
   -H "x-api-key: woo_sua_api_key" \
   -H "Content-Type: application/json" \
   -d '{
@@ -303,12 +303,12 @@ GET    /api/v1/instances/:id/logs
 ### Criar webhook
 
 ```bash
-curl -X POST http://localhost:3002/api/v1/instances/17/webhooks \
+curl -X POST https://painel.wozapi.com.br/api/v1/instances/17/webhooks \
   -H "x-api-key: woo_sua_api_key" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "n8n Atendimento",
-    "url": "https://seu-n8n.com/webhook/wooapi",
+    "url": "https://seu-n8n.com/webhook/wozapi",
     "events": ["message.received", "message.sent", "instance.connected", "instance.disconnected"],
     "retry_enabled": true,
     "max_attempts": 5
@@ -320,7 +320,7 @@ curl -X POST http://localhost:3002/api/v1/instances/17/webhooks \
 Cada entrega HTTP inclui:
 
 ```http
-X-WooAPI-Signature: sha256=<hmac_sha256_raw_body_hex>
+X-Wooapi-Signature: sha256=<hmac_sha256_raw_body_hex>
 ```
 
 Use o secret do webhook ou `webhook_secret` da instancia para validar o corpo bruto recebido.
@@ -352,7 +352,7 @@ Configuracao do node:
 ```json
 {
   "method": "POST",
-  "url": "https://api.seudominio.com/api/v1/instances/17/send-text",
+  "url": "https://painel.wozapi.com.br/api/v1/instances/17/send-text",
   "headers": {
     "x-api-key": "woo_sua_api_key",
     "Content-Type": "application/json"
@@ -385,6 +385,37 @@ Providers suportados no painel:
 n8n
 typebot
 chatwoot
+```
+
+### Fluxo assistido recomendado
+
+Para reduzir configuracao manual, use a aba **Conectores** do painel. Ela centraliza a instancia, API key, endpoints, webhooks, exemplos e status de prontidao.
+
+Ordem sugerida:
+
+1. Selecione a instancia conectada.
+2. Copie a URL base e a API key exibidas no painel.
+3. Escolha o provedor: n8n, Typebot ou Chatwoot.
+4. Preencha apenas os campos do provedor.
+5. Salve e ative.
+6. No n8n, crie o webhook pelo botao do painel. No Chatwoot, salve a configuracao para acionar o auto-registro do webhook no inbox.
+7. Valide em **Saude da Plataforma** usando logs de webhooks e eventos.
+
+Campos por provedor:
+
+| Provedor | Campos | Resultado |
+| --- | --- | --- |
+| n8n | Production URL do Webhook e token opcional | A Wozapi entrega eventos no workflow e o n8n responde via HTTP Request para `/send-text`. |
+| Typebot | URL base, Public ID e API token | Mensagens recebidas iniciam ou continuam uma sessao Typebot e as respostas voltam ao WhatsApp. |
+| Chatwoot | URL, API Access Token, Account ID e Inbox ID | Conversas entram no inbox e respostas de agentes saem pela instancia Wozapi. |
+
+Exemplo minimo para responder mensagens a partir de qualquer ferramenta HTTP:
+
+```bash
+curl -X POST https://painel.wozapi.com.br/api/v1/instances/17/send-text \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: woo_sua_api_key" \
+  -d '{"number":"5548999999999","text":"Ola, tudo certo?"}'
 ```
 
 ## Contatos e Chats
@@ -565,7 +596,7 @@ curl http://localhost:3000/api/data/requests \
 
 ## MCP Server (Model Context Protocol)
 
-A WooAPI fornece um servidor MCP (Model Context Protocol) que permite que assistentes IA (Claude Desktop, Cursor, etc.) interajam diretamente com a API do WhatsApp.
+A Wozapi fornece um servidor MCP (Model Context Protocol) que permite que assistentes IA (Claude Desktop, Cursor, etc.) interajam diretamente com a API do WhatsApp.
 
 ### Arquitetura
 
@@ -575,7 +606,7 @@ mcp-server/
     index.ts                  # Entrypoint stdio
     lib/
       config.ts               # Configuracao via env
-      api.ts                  # HTTP client para API WooAPI
+      api.ts                  # HTTP client para API Wozapi
     tools/
       messaging.ts            # Envio de mensagens
       groups.ts               # Gerenciamento de grupos
@@ -594,7 +625,7 @@ mcp-server/
 Variaveis de ambiente:
 
 ```env
-WOOAPI_BASE_URL=http://localhost:3000
+WOOAPI_BASE_URL=https://painel.wozapi.com.br
 WOOAPI_API_KEY=woo_sua_api_key
 WOOAPI_INSTANCE_ID=17
 ```
@@ -649,11 +680,11 @@ Adicione ao `claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
-    "wooapi": {
+    "Wozapi": {
       "command": "node",
       "args": ["caminho/para/mcp-server/dist/index.js"],
       "env": {
-        "WOOAPI_BASE_URL": "http://localhost:3000",
+        "WOOAPI_BASE_URL": "https://painel.wozapi.com.br",
         "WOOAPI_API_KEY": "woo_sua_api_key",
         "WOOAPI_INSTANCE_ID": "17"
       }
@@ -670,7 +701,7 @@ Nas configuracoes do Cursor, adicione um MCP Server apontando para:
 comando: node
 argumentos: [caminho/para/mcp-server/dist/index.js]
 variaveis:
-  WOOAPI_BASE_URL: http://localhost:3000
+  WOOAPI_BASE_URL: https://painel.wozapi.com.br
   WOOAPI_API_KEY: woo_sua_api_key
   WOOAPI_INSTANCE_ID: 17
 ```
@@ -687,4 +718,4 @@ npm start      # rodar versao compilada
 
 ## Observacao Comercial
 
-A WooAPI e uma solucao de automacao para WhatsApp baseada em sessoes conectadas pelo cliente. O uso deve respeitar consentimento, politicas comerciais, limites de envio, boas praticas anti-spam, termos aplicaveis e a LGPD. Botoes nativos oficiais nao fazem parte do produto vendavel desta versao; use texto, links, midia e webhooks.
+A Wozapi e uma solucao de automacao para WhatsApp baseada em sessoes conectadas pelo cliente. O uso deve respeitar consentimento, politicas comerciais, limites de envio, boas praticas anti-spam, termos aplicaveis e a LGPD. Botoes nativos oficiais nao fazem parte do produto vendavel desta versao; use texto, links, midia e webhooks.

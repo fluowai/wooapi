@@ -14,13 +14,18 @@ fs.mkdirSync(dataDir, { recursive: true });
 const MONITOR_INTERVAL_MS = Number(process.env.MONITOR_INTERVAL_MS || 60000);
 const OFFLINE_CRITICAL_MINUTES = Number(process.env.MONITOR_OFFLINE_CRITICAL_MINUTES || 5);
 const BRIDGE_URL = process.env.BRIDGE_URL || "http://127.0.0.1:3001";
+const WOZAPI_V2_BRIDGE_URL = process.env.WOZAPI_V2_BRIDGE_URL || process.env.WOZAPI_V2_INTERNAL_BRIDGE_URL || "http://127.0.0.1:3003";
 const BRIDGE_TOKEN = process.env.BRIDGE_TOKEN || "";
 const RECONNECT_COOLDOWN_MS = Number(process.env.MONITOR_RECONNECT_COOLDOWN_MS || 300000); // 5 min cooldown
 const QR_EXPIRES_MINUTES = Number(process.env.QR_EXPIRES_MINUTES || 10);
 const ORPHAN_SESSION_GRACE_MINUTES = Number(process.env.ORPHAN_SESSION_GRACE_MINUTES || 30);
 
 async function bridgeFetch(pathname: string, options: any = {}) {
-  const url = `${BRIDGE_URL}${pathname}`;
+  const match = String(pathname || "").match(/^\/instances\/(\d+)(?:\/|$)/);
+  const instance = match ? await get("SELECT engine FROM instances WHERE id = ?", [Number(match[1])]).catch(() => null) : null;
+  const engine = String(instance?.engine || "").toLowerCase();
+  const baseURL = ["wozapi-2", "wozapi2", "v2", "2", "2.0"].includes(engine) ? WOZAPI_V2_BRIDGE_URL : BRIDGE_URL;
+  const url = `${baseURL}${pathname}`;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(BRIDGE_TOKEN ? { "X-Bridge-Token": BRIDGE_TOKEN } : {}),
@@ -52,7 +57,7 @@ function publicInstanceStatus(status: string | null | undefined) {
 }
 
 async function checkInstanceHealth() {
-  const instances = await query("SELECT id, account_id, name, status, connection_status, connected_at, disconnected_at, last_seen_at, last_qr_at, jid FROM instances WHERE deleted_at IS NULL");
+  const instances = await query("SELECT id, account_id, name, status, connection_status, connected_at, disconnected_at, last_seen_at, last_qr_at, jid, engine FROM instances WHERE deleted_at IS NULL");
   const now = new Date();
   const since24h = "datetime('now','-24 hours')";
 

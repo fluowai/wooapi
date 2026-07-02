@@ -4,7 +4,7 @@
 
 ## 1. Introdução
 
-A WooAPI ("nós", "nosso") está comprometida com a proteção da privacidade e dos dados pessoais dos nossos usuários ("você", "seu"). Esta Política de Privacidade descreve como coletamos, usamos, armazenamos e protegemos suas informações em conformidade com a Lei Geral de Proteção de Dados (LGPD - Lei nº 13.709/2018).
+A Wozapi ("nós", "nosso") está comprometida com a proteção da privacidade e dos dados pessoais dos nossos usuários ("você", "seu"). Esta Política de Privacidade descreve como coletamos, usamos, armazenamos e protegemos suas informações em conformidade com a Lei Geral de Proteção de Dados (LGPD - Lei nº 13.709/2018).
 
 ## 2. Dados Coletados
 
@@ -61,7 +61,7 @@ Você tem direito a:
 5. **Revogação do consentimento**: Revogar o consentimento a qualquer momento
 6. **Oposição**: Opor-se ao tratamento com base em legítimo interesse
 
-Para exercer seus direitos, utilize os endpoints disponíveis na API ou entre em contato pelo e-mail: privacidade@wooapi.com.br
+Para exercer seus direitos, utilize os endpoints disponíveis na API ou entre em contato pelo e-mail: privacidade@Wozapi.com.br
 
 ## 8. Segurança
 
@@ -81,5 +81,5 @@ Esta política pode ser atualizada periodicamente. Notificaremos sobre mudanças
 
 ## 11. Contato
 
-Encarregado de Proteção de Dados (DPO): dpo@wooapi.com.br
-E-mail para solicitações LGPD: privacidade@wooapi.com.br
+Encarregado de Proteção de Dados (DPO): dpo@Wozapi.com.br
+E-mail para solicitações LGPD: privacidade@Wozapi.com.br

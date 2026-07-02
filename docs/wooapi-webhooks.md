@@ -1,6 +1,6 @@
-# WooAPI Webhooks
+# Wozapi Webhooks
 
-Webhooks da WooAPI sao configurados por instancia e entregues por fila Redis/BullMQ. A API principal apenas valida a configuracao, normaliza o evento e cria um job em `wooapi:webhook-delivery`; a entrega HTTP acontece no `wooapi-webhook-worker`.
+Webhooks da Wozapi sao configurados por instancia e entregues por fila Redis/BullMQ. A API principal apenas valida a configuracao, normaliza o evento e cria um job em `Wozapi:webhook-delivery`; a entrega HTTP acontece no `Wozapi-webhook-worker`.
 
 ## Endpoints
 
@@ -40,14 +40,14 @@ Authorization: Bearer WOO_INSTANCE_API_KEY
 ```json
 {
   "name": "Webhook n8n",
-  "url": "https://n8n.cliente.com/webhook/wooapi",
+  "url": "https://n8n.cliente.com/webhook/Wozapi",
   "events": ["message.received", "message.sent", "instance.disconnected"],
   "retry_enabled": true,
   "max_attempts": 5
 }
 ```
 
-A WooAPI gera automaticamente o `secret` do webhook e o retorna apenas na criacao ou ao rotacionar o segredo.
+A Wozapi gera automaticamente o `secret` do webhook e o retorna apenas na criacao ou ao rotacionar o segredo.
 
 ## Entrega
 
@@ -71,7 +71,7 @@ Payload padrao:
   "tenant_id": "tenant_123",
   "instance_id": "inst_123",
   "timestamp": "2026-05-27T14:30:00.000Z",
-  "source": "wooapi",
+  "source": "Wozapi",
   "data": {
     "message": {
       "id": "msg_123",

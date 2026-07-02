@@ -1,8 +1,8 @@
-# Termos de Uso da WooAPI
+# Termos de Uso da Wozapi
 
 ## Natureza do Produto
 
-A WooAPI e uma plataforma de automacao para WhatsApp baseada em sessoes conectadas pelo cliente. Ela nao substitui contratos diretos, aprovacoes, templates ou garantias oferecidas por canais oficiais do provedor.
+A Wozapi e uma plataforma de automacao para WhatsApp baseada em sessoes conectadas pelo cliente. Ela nao substitui contratos diretos, aprovacoes, templates ou garantias oferecidas por canais oficiais do provedor.
 
 ## Recomendacao de Conta
 
@@ -18,11 +18,11 @@ O WhatsApp pode alterar protocolos, limitar contas, desconectar sessoes ou bloqu
 
 ## Uso Proibido
 
-E proibido usar a WooAPI para spam, fraude, phishing, conteudo ilegal, scraping abusivo, disparos sem consentimento ou qualquer pratica que viole leis, direitos de terceiros ou politicas do WhatsApp.
+E proibido usar a Wozapi para spam, fraude, phishing, conteudo ilegal, scraping abusivo, disparos sem consentimento ou qualquer pratica que viole leis, direitos de terceiros ou politicas do WhatsApp.
 
 ## Campanhas e Limites
 
-Campanhas devem usar delays, limites por instancia e listas com consentimento. A WooAPI pode pausar, limitar ou bloquear contas que gerem abuso, falhas excessivas ou risco de reputacao.
+Campanhas devem usar delays, limites por instancia e listas com consentimento. A Wozapi pode pausar, limitar ou bloquear contas que gerem abuso, falhas excessivas ou risco de reputacao.
 
 ## Suporte e Disponibilidade
 

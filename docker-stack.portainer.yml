@@ -1,15 +1,19 @@
 version: "3.8"
 
 x-wooapi-image: &wooapi_image ghcr.io/fluowai/wooapi:latest
+x-wozapi-v2-image: &wozapi_v2_image devlikeapro/waha-plus:latest
 
 x-wooapi-env: &wooapi_env
   NODE_ENV: production
   APP_ENV: production
   REQUIRE_PRODUCTION_READY: ${REQUIRE_PRODUCTION_READY:-false}
   PORT: 3000
-  APP_URL: "https://painel.wooapi.com.br"
-  CORS_ORIGIN: "https://painel.wooapi.com.br,https://wooapi.com.br,https://wooapi.consultio.com.br"
-  ALLOWED_ORIGINS: "https://painel.wooapi.com.br,https://wooapi.com.br,https://wooapi.consultio.com.br"
+  APP_URL: "https://painel.wozapi.com.br"
+  PANEL_URL: "https://painel.wozapi.com.br"
+  PUBLIC_URL: "https://wozapi.com.br"
+  CONSULTIO_URL: "https://wozapi.consultio.com.br"
+  CORS_ORIGIN: "https://painel.wozapi.com.br,https://wozapi.com.br,https://wozapi.consultio.com.br"
+  ALLOWED_ORIGINS: "https://painel.wozapi.com.br,https://wozapi.com.br,https://wozapi.consultio.com.br"
   SESSION_TOKEN_TTL_HOURS: "${SESSION_TOKEN_TTL_HOURS:-12}"
   MAX_UPLOAD_SIZE_MB: "${MAX_UPLOAD_SIZE_MB:-25}"
   DATA_DIR: /data
@@ -26,7 +30,20 @@ x-wooapi-env: &wooapi_env
   WEBHOOK_SECRET: "${WEBHOOK_SECRET:-change-this-webhook-secret}"
   WOOAPI_ADMIN_TOKEN: "${WOOAPI_ADMIN_TOKEN:-change-this-wooapi-admin-token}"
   UAZAPI_ADMIN_TOKEN: "${WOOAPI_ADMIN_TOKEN:-change-this-wooapi-admin-token}"
+  WOZAPI_OWNER_EMAIL: "${WOZAPI_OWNER_EMAIL:-}"
+  WOZAPI_OWNER_PASSWORD: "${WOZAPI_OWNER_PASSWORD:-}"
+  WOZAPI_OWNER_NAME: "${WOZAPI_OWNER_NAME:-Wozapi Owner}"
+  WOZAPI_OWNER_ACCOUNT_NAME: "${WOZAPI_OWNER_ACCOUNT_NAME:-Wozapi Owner}"
   BRIDGE_TOKEN: "${BRIDGE_TOKEN:-change-this-bridge-token}"
+  WOZAPI_ENGINE: whatsmeow
+  BRIDGE_DEVICE_NAME: Wozapi
+  WOZAPI_V2_BRIDGE_PORT: 3003
+  WOZAPI_V2_UPSTREAM_URL: http://wozapi-v2-core:3000
+  WOZAPI_V2_UPSTREAM_API_KEY: "${WOZAPI_V2_UPSTREAM_API_KEY:-}"
+  WOZAPI_V2_PUBLIC_BRIDGE_URL: "${WOZAPI_V2_PUBLIC_BRIDGE_URL:-}"
+  WOZAPI_V2_WEBHOOK_URL: "${WOZAPI_V2_WEBHOOK_URL:-}"
+  WOZAPI_V2_DEVICE_NAME: Wozapi2
+  WOZAPI_V2_BROWSER_NAME: Wozapi2
   EXPERIMENTAL_INTERACTIVE_MESSAGES: "false"
   REDIS_HOST: redis
   REDIS_PORT: 6379
@@ -69,7 +86,7 @@ x-wooapi-env: &wooapi_env
   SMTP_PORT: "587"
   SMTP_USER: ""
   SMTP_PASS: ""
-  SMTP_FROM: "noreply@wooapi.com.br"
+  SMTP_FROM: "noreply@wozapi.com.br"
   SUPPORT_INSTANCE_ID: ""
   SUPPORT_INSTANCE_JID: ""
   STRIPE_SECRET_KEY: ""
@@ -95,11 +112,37 @@ services:
       restart_policy:
         condition: any
 
+  wozapi-v2-core:
+    image: *wozapi_v2_image
+    environment:
+      WAHA_API_KEY: "${WOZAPI_V2_UPSTREAM_API_KEY:-}"
+      WAHA_DASHBOARD_USERNAME: "${WOZAPI_V2_DASHBOARD_USERNAME:-admin}"
+      WAHA_DASHBOARD_PASSWORD: "${WOZAPI_V2_DASHBOARD_PASSWORD:-change-this-dashboard-password}"
+      WAHA_PRINT_QR: "False"
+      WAHA_MEDIA_STORAGE: LOCAL
+      WHATSAPP_DEFAULT_ENGINE: "${WOZAPI_V2_DEFAULT_ENGINE:-NOWEB}"
+    volumes:
+      - wozapi_v2_sessions:/app/.sessions
+      - wozapi_v2_media:/app/.media
+    networks:
+      - wooapi_internal
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/api/server/version').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+
   wooapi:
     image: *wooapi_image
     environment:
       <<: *wooapi_env
       BRIDGE_URL: http://127.0.0.1:3001
+      WOZAPI_V2_BRIDGE_URL: http://127.0.0.1:3003
       NODE_URL: http://127.0.0.1:3000
       BRIDGE_DB_PATH: /data/wooapi_bridge.db
       BRIDGE_MEDIA_CACHE_DIR: /data/media-cache
@@ -121,7 +164,7 @@ services:
       labels:
         - "traefik.enable=true"
         - "traefik.docker.network=woopanel1"
-        - "traefik.http.routers.wooapi.rule=Host(`painel.wooapi.com.br`) || Host(`wooapi.com.br`) || Host(`wooapi.consultio.com.br`)"
+        - "traefik.http.routers.wooapi.rule=Host(`painel.wozapi.com.br`) || Host(`wozapi.com.br`) || Host(`wozapi.consultio.com.br`)"
         - "traefik.http.routers.wooapi.entrypoints=websecure"
         - "traefik.http.routers.wooapi.tls.certresolver=letsencryptresolver"
         - "traefik.http.routers.wooapi.priority=1"
@@ -136,6 +179,7 @@ services:
     environment:
       <<: *wooapi_env
       BRIDGE_URL: http://wooapi:3001
+      WOZAPI_V2_BRIDGE_URL: http://wooapi:3003
       NODE_URL: http://wooapi:3000
       BRIDGE_DB_PATH: /data/wooapi_bridge.db
     volumes:
@@ -155,6 +199,7 @@ services:
     environment:
       <<: *wooapi_env
       BRIDGE_URL: http://wooapi:3001
+      WOZAPI_V2_BRIDGE_URL: http://wooapi:3003
       NODE_URL: http://wooapi:3000
       BRIDGE_DB_PATH: /data/wooapi_bridge.db
     volumes:
@@ -174,6 +219,7 @@ services:
     environment:
       <<: *wooapi_env
       BRIDGE_URL: http://wooapi:3001
+      WOZAPI_V2_BRIDGE_URL: http://wooapi:3003
       NODE_URL: http://wooapi:3000
       BRIDGE_DB_PATH: /data/wooapi_bridge.db
     volumes:
@@ -193,6 +239,7 @@ services:
     environment:
       <<: *wooapi_env
       BRIDGE_URL: http://wooapi:3001
+      WOZAPI_V2_BRIDGE_URL: http://wooapi:3003
       NODE_URL: http://wooapi:3000
       BRIDGE_DB_PATH: /data/wooapi_bridge.db
     volumes:
@@ -212,6 +259,7 @@ services:
     environment:
       <<: *wooapi_env
       BRIDGE_URL: http://wooapi:3001
+      WOZAPI_V2_BRIDGE_URL: http://wooapi:3003
       NODE_URL: http://wooapi:3000
       BRIDGE_DB_PATH: /data/wooapi_bridge.db
     volumes:
@@ -231,6 +279,7 @@ services:
     environment:
       <<: *wooapi_env
       BRIDGE_URL: http://wooapi:3001
+      WOZAPI_V2_BRIDGE_URL: http://wooapi:3003
       NODE_URL: http://wooapi:3000
       BRIDGE_DB_PATH: /data/wooapi_bridge.db
     volumes:
@@ -250,6 +299,7 @@ services:
     environment:
       <<: *wooapi_env
       BRIDGE_URL: http://wooapi:3001
+      WOZAPI_V2_BRIDGE_URL: http://wooapi:3003
       NODE_URL: http://wooapi:3000
       BRIDGE_DB_PATH: /data/wooapi_bridge.db
     volumes:
@@ -264,6 +314,8 @@ services:
 volumes:
   wooapi_data:
   wooapi_redis_data:
+  wozapi_v2_sessions:
+  wozapi_v2_media:
 
 networks:
   woopanel1:

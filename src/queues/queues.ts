@@ -107,9 +107,16 @@ export const wooapiQueues = [
   deadLetterQueue
 ];
 
+const queueErrorLastLoggedAt = new Map<string, number>();
+const QUEUE_ERROR_LOG_INTERVAL_MS = Number(process.env.QUEUE_ERROR_LOG_INTERVAL_MS || 60_000);
+
 if (queueDriver !== "database") {
   for (const queue of wooapiQueues) {
     queue.on("error", (error) => {
+      const now = Date.now();
+      const lastLoggedAt = queueErrorLastLoggedAt.get(queue.name) || 0;
+      if (now - lastLoggedAt < QUEUE_ERROR_LOG_INTERVAL_MS) return;
+      queueErrorLastLoggedAt.set(queue.name, now);
       console.error(`[WOOAPI_QUEUE_ERROR] ${queue.name}:`, error?.message || error);
     });
   }

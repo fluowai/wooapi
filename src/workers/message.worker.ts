@@ -11,6 +11,7 @@ import { canSendMessage } from "../platform/traffic-controller.js";
 dotenv.config();
 
 const BRIDGE_URL = process.env.BRIDGE_URL || "http://127.0.0.1:3001";
+const WOZAPI_V2_BRIDGE_URL = process.env.WOZAPI_V2_BRIDGE_URL || process.env.WOZAPI_V2_INTERNAL_BRIDGE_URL || "http://127.0.0.1:3003";
 const BRIDGE_TOKEN = process.env.BRIDGE_TOKEN || "dev-bridge-token";
 const APP_URL = process.env.APP_URL || "http://localhost:3000";
 const dataDir = path.resolve(process.env.DATA_DIR || ".");
@@ -40,7 +41,7 @@ type MessageSendJob = {
 
 
 function sanitizePublicError(error: any) {
-  const raw = String(error?.message || error || "");
+  const raw = String(error?.message || error || "").replace(/[^\x20-\x7E\u00C0-\u00FF]/g, "");
   if (!raw) return "Operacao nao concluida";
   if (/token|secret|sqlite|database|stack|trace|bridge|internal|core|go\.mau|whatsmeow/i.test(raw)) {
     return "Operacao nao concluida pela WooAPI";
@@ -136,7 +137,11 @@ async function getMatchingWebhooks(instanceId: number, event: string) {
 }
 
 async function bridgeFetch(pathname: string, options: RequestInit = {}) {
-  const response = await fetch(`${BRIDGE_URL}${pathname}`, {
+  const match = String(pathname || "").match(/^\/instances\/(\d+)(?:\/|$)/);
+  const instance = match ? await get("SELECT engine FROM instances WHERE id = ?", [Number(match[1])]).catch(() => null) : null;
+  const engine = String(instance?.engine || "").toLowerCase();
+  const baseURL = ["wozapi-2", "wozapi2", "v2", "2", "2.0"].includes(engine) ? WOZAPI_V2_BRIDGE_URL : BRIDGE_URL;
+  const response = await fetch(`${baseURL}${pathname}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",

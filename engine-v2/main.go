@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"go.mau.fi/whatsmeow"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
 	waCompanionReg "go.mau.fi/whatsmeow/proto/waCompanionReg"
@@ -24,33 +25,33 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
 	"google.golang.org/protobuf/proto"
-	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "modernc.org/sqlite"
 )
 
 type Engine struct {
-	container   *sqlstore.Container
-	db          *sql.DB
-	clients     map[string]*whatsmeow.Client
-	connecting  map[string]bool
-	lastQR      map[string]string
-	accountIDs  map[string]int
-	sessionWAs  map[string]bool
-	mu          sync.Mutex
-	nodeURL     string
-	token       string
-	logLevel    string
+	container  *sqlstore.Container
+	db         *sql.DB
+	clients    map[string]*whatsmeow.Client
+	connecting map[string]bool
+	lastQR     map[string]string
+	accountIDs map[string]int
+	sessionWAs map[string]bool
+	mu         sync.Mutex
+	nodeURL    string
+	token      string
+	logLevel   string
 }
 
 func NewEngine() *Engine {
-	store.SetOSInfo("Windows", [3]uint32{10, 0, 22631})
+	deviceName := envOrDefault("ENGINE_DEVICE_NAME", "Wozapi2")
+	store.SetOSInfo(deviceName, [3]uint32{2, 0, 0})
 	store.DeviceProps.PlatformType = waCompanionReg.DeviceProps_DESKTOP.Enum()
-	store.DeviceProps.Os = proto.String("Windows 10")
+	store.DeviceProps.Os = proto.String(deviceName)
 	store.DeviceProps.RequireFullSync = proto.Bool(true)
-	store.BaseClientPayload.UserAgent.Manufacturer = proto.String("Google")
-	store.BaseClientPayload.UserAgent.Device = proto.String("Windows")
-	store.BaseClientPayload.UserAgent.OsVersion = proto.String("10.0.22631")
-	_ = os.Unsetenv("WHATSMEOW_DEVICE_NAME")
+	store.BaseClientPayload.UserAgent.Manufacturer = proto.String(deviceName)
+	store.BaseClientPayload.UserAgent.Device = proto.String(deviceName)
+	store.BaseClientPayload.UserAgent.OsVersion = proto.String("2.0")
+	_ = os.Setenv("WHATSMEOW_DEVICE_NAME", deviceName)
 
 	logLevel := envOrDefault("ENGINE_LOG_LEVEL", "INFO")
 	dbLog := waLog.Stdout("Database", "ERROR", true)

@@ -24,7 +24,7 @@ function limitFromEnv(name: string, fallback: number) {
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
-function check(label: string, keySuffix: string, limit: number, windowMs: number): boolean {
+export function check(label: string, keySuffix: string, limit: number, windowMs: number): boolean {
   ensureCleanup();
   const key = `${label}:${keySuffix}`;
   const now = Date.now();

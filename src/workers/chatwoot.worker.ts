@@ -13,6 +13,7 @@ fs.mkdirSync(dataDir, { recursive: true });
 
 
 const BRIDGE_URL = process.env.BRIDGE_URL || "http://127.0.0.1:3001";
+const WOZAPI_V2_BRIDGE_URL = process.env.WOZAPI_V2_BRIDGE_URL || process.env.WOZAPI_V2_INTERNAL_BRIDGE_URL || "http://127.0.0.1:3003";
 const BRIDGE_TOKEN = process.env.BRIDGE_TOKEN || "dev-bridge-token";
 
 type ChatwootConfig = {
@@ -29,9 +30,17 @@ type ChatwootSyncJob = {
   contactName?: string;
   messageText?: string;
   messageId?: string;
+  contentType?: string;
+  mediaUrl?: string;
 };
 
-
+type ChatwootStatusJob = {
+  instanceId: number;
+  accountId: number;
+  contactPhone: string;
+  messageId: string;
+  status: string;
+};
 
 
 
@@ -45,7 +54,11 @@ function sanitizePublicError(error: any) {
 }
 
 async function bridgeFetch(path: string, options: RequestInit = {}) {
-  const url = `${BRIDGE_URL}${path}`;
+  const match = String(path || "").match(/^\/instances\/(\d+)(?:\/|$)/);
+  const instance = match ? await get("SELECT engine FROM instances WHERE id = ?", [Number(match[1])]).catch(() => null) : null;
+  const engine = String(instance?.engine || "").toLowerCase();
+  const baseURL = ["wozapi-2", "wozapi2", "v2", "2", "2.0"].includes(engine) ? WOZAPI_V2_BRIDGE_URL : BRIDGE_URL;
+  const url = `${baseURL}${path}`;
   const response = await fetch(url, {
     ...options,
     headers: {
@@ -132,11 +145,26 @@ async function findOrCreateConversation(config: ChatwootConfig, contactId: numbe
   return created;
 }
 
-async function createChatwootMessage(config: ChatwootConfig, conversationId: number, content: string) {
-  return chatwootApiFetch(config, "POST", `/conversations/${conversationId}/messages`, {
+async function createChatwootMessage(config: ChatwootConfig, conversationId: number, content: string, contentType?: string, mediaUrl?: string) {
+  const body: any = {
     content,
     message_type: "incoming"
-  });
+  };
+  if (contentType && mediaUrl && contentType !== "text") {
+    body.content_type = "input_select";
+    body.content_attributes = {
+      media_url: mediaUrl,
+      media_type: contentType
+    };
+    body.content = content || `[${contentType}]`;
+  }
+  return chatwootApiFetch(config, "POST", `/conversations/${conversationId}/messages`, body);
+}
+
+async function updateMessageStatus(config: ChatwootConfig, conversationId: number, messageId: string, status: string) {
+  if (status === "read") {
+    return chatwootApiFetch(config, "POST", `/conversations/${conversationId}/messages/${messageId}/mark_read`, {});
+  }
 }
 
 async function sendWhatsAppReply(instanceId: number, jid: string, text: string) {
@@ -147,7 +175,7 @@ async function sendWhatsAppReply(instanceId: number, jid: string, text: string) 
 }
 
 async function processChatwootSync(job: Job<ChatwootSyncJob>) {
-  const { instanceId, accountId, contactPhone, contactName, messageText } = job.data;
+  const { instanceId, accountId, contactPhone, contactName, messageText, contentType, mediaUrl } = job.data;
   if (!contactPhone) throw new Error("contactPhone is required");
 
   const config = await getChatwootConfig(instanceId);
@@ -165,8 +193,9 @@ async function processChatwootSync(job: Job<ChatwootSyncJob>) {
   const conversationId = conversation.id;
   if (!conversationId) throw new Error("Failed to create/find Chatwoot conversation");
 
-  if (messageText) {
-    await createChatwootMessage(config, conversationId, messageText);
+  const displayContent = messageText || mediaUrl || "";
+  if (displayContent) {
+    await createChatwootMessage(config, conversationId, displayContent, contentType, mediaUrl);
   }
 
   await run(
@@ -179,6 +208,47 @@ async function processChatwootSync(job: Job<ChatwootSyncJob>) {
     contactId,
     conversationId
   };
+}
+
+async function processChatwootStatus(job: Job<ChatwootStatusJob>) {
+  const { instanceId, accountId, contactPhone, messageId, status } = job.data;
+
+  const config = await getChatwootConfig(instanceId);
+  if (!config) {
+    return { skipped: true, reason: "Chatwoot integration not configured or disabled" };
+  }
+
+  const phone = contactPhone.includes("@") ? contactPhone.split("@")[0] : contactPhone;
+
+  const search = await chatwootApiFetch(config, "GET", `/contacts/search?q=${encodeURIComponent(phone)}`);
+  const contacts = search?.payload || search?.data || [];
+  const contact = Array.isArray(contacts)
+    ? contacts.find((c: any) => {
+        const p = c.phone_number || c.phone || "";
+        return p.replace(/\D/g, "") === phone.replace(/\D/g, "");
+      })
+    : null;
+  if (!contact) return { skipped: true, reason: "contact not found in Chatwoot" };
+
+  const conversations = await chatwootApiFetch(config, "GET", `/contacts/${contact.id}/conversations`);
+  const conversation = Array.isArray(conversations?.payload)
+    ? conversations.payload.find((c: any) => c.inbox_id === config.inboxId)
+    : null;
+  if (!conversation) return { skipped: true, reason: "conversation not found in Chatwoot" };
+
+  if (status === "delivered" || status === "read") {
+    const messages = await chatwootApiFetch(config, "GET", `/conversations/${conversation.id}/messages`, {});
+    const sourceMessages = Array.isArray(messages?.payload)
+      ? messages.payload.filter((m: any) => m.source_id === messageId)
+      : [];
+    for (const msg of sourceMessages) {
+      if (status === "read") {
+        await chatwootApiFetch(config, "POST", `/conversations/${conversation.id}/messages/${msg.id}/mark_read`, {});
+      }
+    }
+  }
+
+  return { synced: true, status };
 }
 
 const worker = new Worker<ChatwootSyncJob>(WOOAPI_QUEUE_NAMES.chatwootSync, processChatwootSync, {
@@ -201,10 +271,11 @@ worker.on("error", (error) => {
 
 async function shutdown() {
   await worker.close();
-  // db.close();
 }
 
 process.once("SIGINT", () => shutdown().finally(() => process.exit(0)));
 process.once("SIGTERM", () => shutdown().finally(() => process.exit(0)));
 
 console.log(`[WOOAPI_CHATWOOT_WORKER] listening on ${WOOAPI_QUEUE_NAMES.chatwootSync}`);
+
+export { processChatwootSync, processChatwootStatus, getChatwootConfig };

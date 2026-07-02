@@ -8,7 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strconv"
@@ -18,6 +20,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/mdp/qrterminal/v3"
 	"go.mau.fi/whatsmeow"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
@@ -28,7 +31,6 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
 	"google.golang.org/protobuf/proto"
-	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "modernc.org/sqlite"
 )
 
@@ -49,14 +51,15 @@ type Bridge struct {
 }
 
 func NewBridge() *Bridge {
-	store.SetOSInfo("Windows", [3]uint32{10, 0, 22631})
+	deviceName := envOrDefault("BRIDGE_DEVICE_NAME", "Wozapi")
+	store.SetOSInfo(deviceName, [3]uint32{1, 0, 0})
 	store.DeviceProps.PlatformType = waCompanionReg.DeviceProps_DESKTOP.Enum()
-	store.DeviceProps.Os = proto.String("Windows 10")
+	store.DeviceProps.Os = proto.String(deviceName)
 	store.DeviceProps.RequireFullSync = proto.Bool(true)
-	store.BaseClientPayload.UserAgent.Manufacturer = proto.String("Google")
-	store.BaseClientPayload.UserAgent.Device = proto.String("Windows")
-	store.BaseClientPayload.UserAgent.OsVersion = proto.String("10.0.22631")
-	_ = os.Unsetenv("WHATSMEOW_DEVICE_NAME")
+	store.BaseClientPayload.UserAgent.Manufacturer = proto.String(deviceName)
+	store.BaseClientPayload.UserAgent.Device = proto.String(deviceName)
+	store.BaseClientPayload.UserAgent.OsVersion = proto.String("1.0")
+	_ = os.Setenv("WHATSMEOW_DEVICE_NAME", deviceName)
 
 	logLevel := envOrDefault("BRIDGE_LOG_LEVEL", "INFO")
 	dbLog := waLog.Stdout("Database", "ERROR", true)
@@ -144,7 +147,7 @@ func (b *Bridge) sendToNode(event string, instanceId int, accountId int, payload
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Bridge-Token", b.token)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err == nil && resp != nil {
 		resp.Body.Close()
 	}
@@ -733,8 +736,8 @@ func sendWithPreWarm(client *whatsmeow.Client, ctx context.Context, target types
 
 func (b *Bridge) checkAccountRestriction(client *whatsmeow.Client) map[string]interface{} {
 	result := map[string]interface{}{
-		"connected":  client.IsConnected(),
-		"loggedIn":   client.IsLoggedIn(),
+		"connected": client.IsConnected(),
+		"loggedIn":  client.IsLoggedIn(),
 	}
 	if client.Store != nil {
 		result["jid"] = client.Store.GetJID().ToNonAD().String()
@@ -1301,6 +1304,54 @@ func (b *Bridge) handleSendList(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+var httpClient = &http.Client{Timeout: 30 * time.Second}
+
+var privateIPBlocks []*net.IPNet
+
+func init() {
+	for _, cidr := range []string{
+		"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
+		"100.64.0.0/10", "198.18.0.0/15",
+		"127.0.0.0/8", "169.254.0.0/16",
+		"::1/128", "fc00::/7", "fe80::/10",
+	} {
+		_, block, _ := net.ParseCIDR(cidr)
+		if block != nil {
+			privateIPBlocks = append(privateIPBlocks, block)
+		}
+	}
+}
+
+func isSafeURL(rawURL string) error {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+	if parsed.Scheme != "https" {
+		return fmt.Errorf("only HTTPS URLs are allowed")
+	}
+	host := parsed.Hostname()
+	ips, err := net.LookupHost(host)
+	if err != nil {
+		return fmt.Errorf("cannot resolve host")
+	}
+	for _, ip := range ips {
+		parsedIP := net.ParseIP(ip)
+		if parsedIP == nil {
+			continue
+		}
+		if parsedIP.IsLoopback() || parsedIP.IsPrivate() || parsedIP.IsUnspecified() {
+			return fmt.Errorf("URL points to private/internal network")
+		}
+		for _, block := range privateIPBlocks {
+			if block.Contains(parsedIP) {
+				return fmt.Errorf("URL points to private/internal network")
+			}
+		}
+	}
+	return nil
+}
+
 func (b *Bridge) handleSendMedia(w http.ResponseWriter, r *http.Request) {
 	if !b.authorized(r) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -1324,13 +1375,17 @@ func (b *Bridge) handleSendMedia(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "mediaUrl required", 400)
 		return
 	}
+	if err := isSafeURL(req.MediaURL); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
 	client, err := b.sendReadyClient(id, req.AccountId)
 	if err != nil {
 		http.Error(w, err.Error(), 400)
 		return
 	}
 
-	resp, err := http.Get(req.MediaURL)
+	resp, err := httpClient.Get(req.MediaURL)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return

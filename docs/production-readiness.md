@@ -1,4 +1,4 @@
-# WooAPI - Checklist de Producao
+# Wozapi - Checklist de Producao
 
 ## Obrigatorio
 
@@ -15,7 +15,7 @@
 ## Health Check
 
 ```bash
-curl https://api.seudominio.com/health
+curl https://painel.wozapi.com.br/health
 ```
 
 O campo `production_ready` deve estar `true`. Se estiver `false`, leia `production_blockers`.
@@ -25,30 +25,30 @@ O campo `production_ready` deve estar `true`. Se estiver `false`, leia `producti
 Endpoints regulares:
 
 ```bash
-curl -H "token: $INSTANCE_TOKEN" https://api.seudominio.com/instance/status
+curl -H "token: $INSTANCE_TOKEN" https://painel.wozapi.com.br/instance/status
 ```
 
 Endpoints administrativos:
 
 ```bash
-curl -H "admintoken: $WOOAPI_ADMIN_TOKEN" https://api.seudominio.com/instance/all
+curl -H "admintoken: $WOOAPI_ADMIN_TOKEN" https://painel.wozapi.com.br/instance/all
 ```
 
 Compatibilidade Evolution/UazAPI com chave da instancia, limitada a conta da propria chave:
 
 ```bash
-curl -H "token: $INSTANCE_TOKEN" https://api.seudominio.com/instance/all
+curl -H "token: $INSTANCE_TOKEN" https://painel.wozapi.com.br/instance/all
 
-curl -X POST https://api.seudominio.com/instance/create \
+curl -X POST https://painel.wozapi.com.br/instance/create \
   -H "token: $INSTANCE_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"name":"Atendimento 2","webhook_url":"https://seu-n8n.com/webhook/wooapi"}'
+  -d '{"name":"Atendimento 2","webhook_url":"https://seu-n8n.com/webhook/Wozapi"}'
 ```
 
 API v1:
 
 ```bash
-curl -H "x-api-key: $INSTANCE_TOKEN" https://api.seudominio.com/api/v1/instances/17/status
+curl -H "x-api-key: $INSTANCE_TOKEN" https://painel.wozapi.com.br/api/v1/instances/17/status
 ```
 
 ## Exemplos de Envio
@@ -56,34 +56,34 @@ curl -H "x-api-key: $INSTANCE_TOKEN" https://api.seudominio.com/api/v1/instances
 Texto:
 
 ```bash
-curl -X POST https://api.seudominio.com/send/text \
+curl -X POST https://painel.wozapi.com.br/send/text \
   -H "token: $INSTANCE_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"number":"5548999999999","text":"Teste WooAPI"}'
+  -d '{"number":"5548999999999","text":"Teste Wozapi"}'
 ```
 
 Localizacao:
 
 ```bash
-curl -X POST https://api.seudominio.com/send/location \
+curl -X POST https://painel.wozapi.com.br/send/location \
   -H "token: $INSTANCE_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"number":"5548999999999","latitude":-27.5949,"longitude":-48.5482,"name":"WooAPI","address":"Florianopolis - SC"}'
+  -d '{"number":"5548999999999","latitude":-27.5949,"longitude":-48.5482,"name":"Wozapi","address":"Florianopolis - SC"}'
 ```
 
 Contato:
 
 ```bash
-curl -X POST https://api.seudominio.com/send/contact \
+curl -X POST https://painel.wozapi.com.br/send/contact \
   -H "token: $INSTANCE_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"number":"5548999999999","name":"Suporte WooAPI","phone":"5548999999999"}'
+  -d '{"number":"5548999999999","name":"Suporte Wozapi","phone":"5548999999999"}'
 ```
 
 Campanha:
 
 ```bash
-curl -X POST https://api.seudominio.com/sender/create \
+curl -X POST https://painel.wozapi.com.br/sender/create \
   -H "token: $INSTANCE_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name":"Campanha teste","message":"Ola {{nome}}","min_delay_ms":3000,"max_delay_ms":9000,"limit_per_instance":1}'
@@ -94,19 +94,19 @@ curl -X POST https://api.seudominio.com/sender/create \
 Painel admin:
 
 ```bash
-curl -H "Authorization: Bearer $JWT" https://api.seudominio.com/api/admin/wooapi-monitor
+curl -H "Authorization: Bearer $JWT" https://painel.wozapi.com.br/api/admin/wooapi-monitor
 ```
 
 Logs:
 
 ```bash
-curl -H "Authorization: Bearer $JWT" "https://api.seudominio.com/api/admin/logs?type=webhooks"
+curl -H "Authorization: Bearer $JWT" "https://painel.wozapi.com.br/api/admin/logs?type=webhooks"
 ```
 
 Alertas:
 
 ```bash
-curl -H "Authorization: Bearer $JWT" https://api.seudominio.com/api/admin/alerts
+curl -H "Authorization: Bearer $JWT" https://painel.wozapi.com.br/api/admin/alerts
 ```
 
 ## Backup
@@ -114,13 +114,13 @@ curl -H "Authorization: Bearer $JWT" https://api.seudominio.com/api/admin/alerts
 Criar backup operacional:
 
 ```bash
-curl -X POST -H "Authorization: Bearer $JWT" https://api.seudominio.com/api/admin/backups
+curl -X POST -H "Authorization: Bearer $JWT" https://painel.wozapi.com.br/api/admin/backups
 ```
 
 Listar backups:
 
 ```bash
-curl -H "Authorization: Bearer $JWT" https://api.seudominio.com/api/admin/backups
+curl -H "Authorization: Bearer $JWT" https://painel.wozapi.com.br/api/admin/backups
 ```
 
 Restore local so deve ser feito em manutencao com `ALLOW_RESTORE=true`.

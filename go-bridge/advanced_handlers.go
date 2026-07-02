@@ -733,8 +733,11 @@ func loadMediaBytes(source string) ([]byte, error) {
 	if decoded, err := base64.StdEncoding.DecodeString(source); err == nil {
 		return decoded, nil
 	}
-	if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
-		resp, err := http.Get(source)
+	if strings.HasPrefix(source, "https://") {
+		if err := isSafeURL(source); err != nil {
+			return nil, err
+		}
+		resp, err := httpClient.Get(source)
 		if err != nil {
 			return nil, err
 		}
@@ -744,7 +747,7 @@ func loadMediaBytes(source string) ([]byte, error) {
 		}
 		return io.ReadAll(io.LimitReader(resp.Body, 15<<20))
 	}
-	return nil, fmt.Errorf("media must be a base64 data URI or HTTP URL")
+	return nil, fmt.Errorf("media must be a base64 data URI or HTTPS URL")
 }
 
 func writeAdvancedResult(w http.ResponseWriter, value interface{}, err error) {

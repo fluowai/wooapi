@@ -1,0 +1,52 @@
+{
+  "name": "n8n-nodes-wooapi",
+  "version": "1.0.0",
+  "description": "n8n community node for WooAPI - Send and receive WhatsApp messages via WooAPI",
+  "keywords": [
+    "n8n-community-node-package",
+    "n8n",
+    "wooapi",
+    "whatsapp",
+    "whatsmeow",
+    "chatwoot"
+  ],
+  "license": "MIT",
+  "homepage": "https://wooapi.com.br",
+  "author": {
+    "name": "WooAPI",
+    "email": "dev@wooapi.com.br"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/anomalyco/wasenderbr-1"
+  },
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc && cp -r nodes/*.js nodes/*.js.map dist/nodes/ 2>/dev/null; cp -r credentials/*.js credentials/*.js.map dist/credentials/ 2>/dev/null; echo 'Built'",
+    "dev": "tsc --watch",
+    "prepublishOnly": "npm run build",
+    "lint": "eslint nodes credentials --ext .ts",
+    "test": "echo 'No tests yet'"
+  },
+  "files": [
+    "dist/"
+  ],
+  "n8n": {
+    "n8nNodesApiVersion": 1,
+    "credentials": [
+      "dist/credentials/WooApi.credentials.js"
+    ],
+    "nodes": [
+      "dist/nodes/WooApi.node.js",
+      "dist/nodes/WooApiTrigger.node.js"
+    ]
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "~5.8.0",
+    "n8n-workflow": "^1.0.0"
+  },
+  "peerDependencies": {
+    "n8n-workflow": "^1.0.0"
+  }
+}

@@ -22,6 +22,7 @@ services:
     restart: unless-stopped
     depends_on:
       - redis
+      - wozapi-v2-core
     ports:
       - "3000:3000"
     environment:
@@ -41,9 +42,23 @@ services:
       BRIDGE_DB_PATH: /data/wooapi_bridge.db
       BRIDGE_MEDIA_CACHE_DIR: /data/media-cache
       BRIDGE_TOKEN: ${BRIDGE_TOKEN:-change-this-bridge-token}
+      WOZAPI_ENGINE: ${WOZAPI_ENGINE:-whatsmeow}
+      BRIDGE_DEVICE_NAME: ${BRIDGE_DEVICE_NAME:-Wozapi}
+      WOZAPI_V2_BRIDGE_URL: http://127.0.0.1:3003
+      WOZAPI_V2_BRIDGE_PORT: 3003
+      WOZAPI_V2_UPSTREAM_URL: http://wozapi-v2-core:3000
+      WOZAPI_V2_UPSTREAM_API_KEY: ${WOZAPI_V2_UPSTREAM_API_KEY:-}
+      WOZAPI_V2_PUBLIC_BRIDGE_URL: ${WOZAPI_V2_PUBLIC_BRIDGE_URL:-}
+      WOZAPI_V2_WEBHOOK_URL: ${WOZAPI_V2_WEBHOOK_URL:-}
+      WOZAPI_V2_DEVICE_NAME: ${WOZAPI_V2_DEVICE_NAME:-Wozapi2}
+      WOZAPI_V2_BROWSER_NAME: ${WOZAPI_V2_BROWSER_NAME:-Wozapi2}
       JWT_SECRET: ${JWT_SECRET:-change-this-jwt-secret}
       WEBHOOK_SECRET: ${WEBHOOK_SECRET:-change-this-webhook-secret}
       WOOAPI_ADMIN_TOKEN: ${WOOAPI_ADMIN_TOKEN:-change-this-wooapi-admin-token}
+      WOZAPI_OWNER_EMAIL: ${WOZAPI_OWNER_EMAIL:-}
+      WOZAPI_OWNER_PASSWORD: ${WOZAPI_OWNER_PASSWORD:-}
+      WOZAPI_OWNER_NAME: ${WOZAPI_OWNER_NAME:-Wozapi Owner}
+      WOZAPI_OWNER_ACCOUNT_NAME: ${WOZAPI_OWNER_ACCOUNT_NAME:-Wozapi Owner}
       DATABASE_URL: ${DATABASE_URL:-}
       REDIS_HOST: redis
       REDIS_PORT: 6379
@@ -78,6 +93,29 @@ services:
       SUPPORT_INSTANCE_JID: ${SUPPORT_INSTANCE_JID:-}
     volumes:
       - wooapi_data:/data
+
+  wozapi-v2-core:
+    image: devlikeapro/waha-plus:latest
+    container_name: wozapi-v2-core
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3004:3000"
+    environment:
+      WAHA_API_KEY: ${WOZAPI_V2_UPSTREAM_API_KEY:-}
+      WAHA_DASHBOARD_USERNAME: ${WOZAPI_V2_DASHBOARD_USERNAME:-admin}
+      WAHA_DASHBOARD_PASSWORD: ${WOZAPI_V2_DASHBOARD_PASSWORD:-change-this-dashboard-password}
+      WAHA_PRINT_QR: "False"
+      WAHA_MEDIA_STORAGE: LOCAL
+      WHATSAPP_DEFAULT_ENGINE: ${WOZAPI_V2_DEFAULT_ENGINE:-NOWEB}
+    volumes:
+      - wozapi_v2_sessions:/app/.sessions
+      - wozapi_v2_media:/app/.media
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/api/server/version').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
   wooapi-webhook-worker:
     build:
@@ -127,6 +165,7 @@ services:
       SQLITE_FILENAME: database.db
       DATABASE_URL: ${DATABASE_URL:-}
       BRIDGE_URL: http://wooapi:3001
+      WOZAPI_V2_BRIDGE_URL: http://wooapi:3003
       BRIDGE_TOKEN: ${BRIDGE_TOKEN:-change-this-bridge-token}
       WEBHOOK_SECRET: ${WEBHOOK_SECRET:-change-this-webhook-secret}
       REDIS_HOST: redis
@@ -158,6 +197,7 @@ services:
       DATABASE_URL: ${DATABASE_URL:-}
       WEBHOOK_SECRET: ${WEBHOOK_SECRET:-change-this-webhook-secret}
       BRIDGE_URL: http://wooapi:3001
+      WOZAPI_V2_BRIDGE_URL: http://wooapi:3003
       BRIDGE_TOKEN: ${BRIDGE_TOKEN:-change-this-bridge-token}
       REDIS_HOST: redis
       REDIS_PORT: 6379
@@ -273,6 +313,7 @@ services:
       SQLITE_FILENAME: database.db
       DATABASE_URL: ${DATABASE_URL:-}
       BRIDGE_URL: http://wooapi:3001
+      WOZAPI_V2_BRIDGE_URL: http://wooapi:3003
       BRIDGE_TOKEN: ${BRIDGE_TOKEN:-change-this-bridge-token}
       REDIS_HOST: redis
       REDIS_PORT: 6379
@@ -290,3 +331,5 @@ services:
 volumes:
   wooapi_data:
   redis_data:
+  wozapi_v2_sessions:
+  wozapi_v2_media:

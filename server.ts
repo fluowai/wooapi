@@ -8,7 +8,8 @@ import {
 } from "./src/billing.js";
 import {
   globalRateLimit, loginRateLimit, apiKeyRateLimit,
-  accountRateLimit, criticalEndpointRateLimit, perInstanceRateLimit
+  accountRateLimit, criticalEndpointRateLimit, perInstanceRateLimit,
+  check
 } from "./src/rate-limit.js";
 import cors from "cors";
 import bodyParser from "body-parser";
@@ -56,6 +57,7 @@ fs.mkdirSync(dataDir, { recursive: true });
 const PORT = Number(process.env.PORT || 3000);
 const APP_URL = process.env.APP_URL || `http://localhost:${PORT}`;
 const BRIDGE_URL = process.env.BRIDGE_URL || "http://127.0.0.1:3001";
+const WOZAPI_V2_BRIDGE_URL = process.env.WOZAPI_V2_BRIDGE_URL || process.env.WOZAPI_V2_INTERNAL_BRIDGE_URL || "http://127.0.0.1:3003";
 const BRIDGE_TOKEN = process.env.BRIDGE_TOKEN || "dev-bridge-token";
 const EXPERIMENTAL_INTERACTIVE_MESSAGES = process.env.EXPERIMENTAL_INTERACTIVE_MESSAGES === "true";
 const JWT_SECRET = process.env.JWT_SECRET || "dev-jwt-secret-change-me";
@@ -70,7 +72,7 @@ const SMTP_HOST = process.env.SMTP_HOST || "";
 const SMTP_PORT = Number(process.env.SMTP_PORT || 587);
 const SMTP_USER = process.env.SMTP_USER || "";
 const SMTP_PASS = process.env.SMTP_PASS || "";
-const SMTP_FROM = process.env.SMTP_FROM || "noreply@wooapi.com.br";
+const SMTP_FROM = process.env.SMTP_FROM || "noreply@wozapi.com.br";
 const SUPPORT_INSTANCE_ID = process.env.SUPPORT_INSTANCE_ID || "";
 const SUPPORT_INSTANCE_JID = process.env.SUPPORT_INSTANCE_JID || "";
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || "";
@@ -79,7 +81,7 @@ const QUEUE_DRIVER = process.env.QUEUE_DRIVER || (process.env.NODE_ENV === "prod
 const REQUIRE_PRODUCTION_READY = process.env.REQUIRE_PRODUCTION_READY === "true";
 const QR_EXPIRES_MINUTES = Number(process.env.QR_EXPIRES_MINUTES || 10);
 const ORPHAN_SESSION_GRACE_MINUTES = Number(process.env.ORPHAN_SESSION_GRACE_MINUTES || 30);
-const TRIAL_TEST_HOURS = Number(process.env.TRIAL_TEST_HOURS || 48);
+const TRIAL_TEST_HOURS = Number(process.env.TRIAL_TEST_HOURS || 1);
 const BACKUP_DIR = path.resolve(process.env.BACKUP_DIR || path.join(dataDir, "backups"));
 const ALLOW_RESTORE = process.env.ALLOW_RESTORE === "true";
 
@@ -130,13 +132,28 @@ function parseAllowedOrigins(raw: string) {
 function corsOptions(): any {
   const allowedOrigins = parseAllowedOrigins(CORS_ORIGIN);
   if (allowedOrigins.includes("*")) {
-    return { origin: process.env.NODE_ENV === "production" ? false : "*" };
+    return {
+      origin(origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) {
+        if (!origin || APP_URL.startsWith("https://") || process.env.NODE_ENV !== "production") {
+          return callback(null, true);
+        }
+        try {
+          const parsed = new URL(origin);
+          if (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") {
+            return callback(null, true);
+          }
+        } catch {}
+        return callback(new Error("Origin not allowed by CORS"));
+      },
+      credentials: true
+    };
   }
   return {
-    origin(origin, callback) {
+    origin(origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) {
       if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
       return callback(new Error("Origin not allowed by CORS"));
-    }
+    },
+    credentials: true
   };
 }
 
@@ -205,6 +222,12 @@ const allowedUploadExtensions = new Set([
 function safeUploadExtension(originalName = "") {
   const ext = path.extname(originalName).toLowerCase();
   return allowedUploadExtensions.has(ext) ? ext : "";
+}
+
+function sanitizeFilename(name: string): string {
+  const ext = path.extname(name);
+  const base = path.basename(name, ext).replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 64);
+  return `${base}${ext}`;
 }
 
 type AccountRequest = express.Request & { accountId?: number; user?: any; account?: any };
@@ -345,12 +368,30 @@ async function createDefaultWebhook(accountId: number, instanceId: number, reque
   return await get("SELECT * FROM instance_webhooks WHERE id = ?", [info.lastInsertRowid]);
 }
 
-async function createInstanceWithCredentials(accountId: number, name: string, webhookUrl?: string) {
+function normalizeInstanceEngine(engine?: any) {
+  const value = String(engine || "").trim().toLowerCase();
+  if (["wozapi-2", "wozapi2", "v2", "2", "2.0"].includes(value)) return "wozapi-2";
+  return "wozapi-1";
+}
+
+function isWozapiV2Engine(engine?: any) {
+  return normalizeInstanceEngine(engine) === "wozapi-2";
+}
+
+async function bridgeURLForPath(pathname: string) {
+  const match = String(pathname || "").match(/^\/instances\/(\d+)(?:\/|$)/);
+  if (!match) return BRIDGE_URL;
+  const inst = await get("SELECT engine FROM instances WHERE id = ?", [Number(match[1])]).catch(() => null);
+  return isWozapiV2Engine(inst?.engine) ? WOZAPI_V2_BRIDGE_URL : BRIDGE_URL;
+}
+
+async function createInstanceWithCredentials(accountId: number, name: string, webhookUrl?: string, engine?: string) {
   const apiKey = randomToken("woo");
   const webhookSecret = randomToken("whsec");
+  const normalizedEngine = normalizeInstanceEngine(engine);
   const info = await run(
     "INSERT INTO instances (account_id, name, status, connection_status, engine, api_key, webhook_secret) VALUES (?, ?, ?, ?, ?, ?, ?)",
-    [accountId, name, "created", "created", "wooapi", apiKey, webhookSecret]
+    [accountId, name, "created", "created", normalizedEngine, apiKey, webhookSecret]
   );
   const instanceId = Number(info.lastInsertRowid);
   const defaultWebhook = await createDefaultWebhook(accountId, instanceId, webhookUrl);
@@ -364,23 +405,47 @@ async function createInstanceWithCredentials(accountId: number, name: string, we
   };
 }
 
+const PBKDF2_ITERATIONS = 600000;
+const PBKDF2_LEGACY_ITERATIONS = 120000;
+
 function hashPassword(password: string) {
   const salt = crypto.randomBytes(16).toString("hex");
-  const hash = crypto.pbkdf2Sync(password, salt, 120000, 32, "sha256").toString("hex");
-  return `pbkdf2$${salt}$${hash}`;
+  const hash = crypto.pbkdf2Sync(password, salt, PBKDF2_ITERATIONS, 32, "sha256").toString("hex");
+  return `pbkdf2$${salt}$${PBKDF2_ITERATIONS}$${hash}`;
 }
 
 function verifyPassword(password: string, stored: string) {
   if (!stored) return false;
   if (!stored.startsWith("pbkdf2$")) return false;
-  const [, salt, expected] = stored.split("$");
-  const actual = crypto.pbkdf2Sync(password, salt, 120000, 32, "sha256").toString("hex");
-  return crypto.timingSafeEqual(Buffer.from(actual), Buffer.from(expected));
+  const parts = stored.split("$");
+  const salt = parts[1];
+  const expected = parts[parts.length - 1];
+  let iterations = PBKDF2_ITERATIONS;
+  if (parts.length === 4) {
+    iterations = Number(parts[2]) || PBKDF2_ITERATIONS;
+  }
+  const actual = crypto.pbkdf2Sync(password, salt, iterations, 32, "sha256").toString("hex");
+  if (!crypto.timingSafeEqual(Buffer.from(actual), Buffer.from(expected))) return false;
+  if (iterations < PBKDF2_ITERATIONS) {
+    return "needs_rehash";
+  }
+  return true;
 }
 
+const JWT_ISSUER = "wooapi";
+const JWT_AUDIENCE = "wooapi-users";
+
 function signToken(payload: any) {
-  const exp = payload.exp || new Date(Date.now() + SESSION_TOKEN_TTL_HOURS * 60 * 60 * 1000).toISOString();
-  const body = Buffer.from(JSON.stringify({ ...payload, exp })).toString("base64url");
+  const now = Date.now();
+  const exp = payload.exp || new Date(now + SESSION_TOKEN_TTL_HOURS * 60 * 60 * 1000).toISOString();
+  const iat = new Date(now).toISOString();
+  const body = Buffer.from(JSON.stringify({
+    ...payload,
+    iss: JWT_ISSUER,
+    aud: JWT_AUDIENCE,
+    iat,
+    exp
+  })).toString("base64url");
   const sig = crypto.createHmac("sha256", JWT_SECRET).update(body).digest("base64url");
   return `${body}.${sig}`;
 }
@@ -398,6 +463,9 @@ function verifyToken(token?: string) {
     return null;
   }
   if (payload.exp && new Date(payload.exp).getTime() < Date.now()) return null;
+  if (payload.iss && payload.iss !== JWT_ISSUER) return null;
+  if (payload.aud && payload.aud !== JWT_AUDIENCE) return null;
+  if (payload.iat && new Date(payload.iat).getTime() > Date.now()) return null;
   return payload;
 }
 
@@ -475,10 +543,20 @@ function cleanDisplayName(name?: string) {
 function sanitizePublicError(error: any) {
   const raw = String(error?.message || error || "");
   if (!raw) return "Operação não concluída";
-  if (/token|secret|sqlite|database|stack|trace|bridge|internal|core|go\.mau|whatsmeow/i.test(raw)) {
-    return "Operação não concluída pelo WooAPI Core";
+  const blockedPatterns = [
+    /token/i, /secret/i, /sqlite/i, /database/i, /stack/i, /trace/i,
+    /bridge/i, /internal/i, /core/i, /go\.mau/i, /whatsmeow/i,
+    /password/i, /api[_-]?key/i, /JWT_SECRET/i, /WEBHOOK_SECRET/i,
+    /supabase/i, /stripe/i, /redis/i, /auth_token/i, /admin_token/i,
+    /\/etc\//, /\/proc\//, /C:\\/i, /home\//, /\/app\//, /\/data\//,
+    /s\.whatsapp\.net/, /@g\.us/, /jid/i, /Bearer /i
+  ];
+  for (const pattern of blockedPatterns) {
+    if (pattern.test(raw)) {
+      return "Operação não concluída pelo WooAPI Core";
+    }
   }
-  return raw.slice(0, 180);
+  return raw.slice(0, 180).replace(/[^\x20-\x7E\u00C0-\u00FF]/g, "");
 }
 
 const instanceStatusMap: Record<string, string> = {
@@ -631,7 +709,7 @@ function shouldSkipMessagePayload(payload: any) {
 
 async function qrToImage(qr?: string | null) {
   if (!qr) return qr;
-  if (qr.startsWith("data:image/") || qr.startsWith("http://") || qr.startsWith("https://")) return qr;
+  if (qr.startsWith("data:image/")) return qr;
   return QRCode.toDataURL(qr, { margin: 1, width: 320 });
 }
 
@@ -1243,11 +1321,11 @@ async function migrate() {
     await run("UPDATE plans SET name = ? WHERE id = ?", ["Teste Gratis", starter.id]);
   }
 
-  await ensurePlan("Teste Gratis", 0, 0, 0, 0, 1, 1, 200, 0, ["Teste de 2 dias", "1 instancia WhatsApp", "API", "Webhook", "Conta excluida automaticamente"]);
-  await ensurePlan("WooAPI Starter", 97, 0, 0, 0, 2, 2, 5000, 0, ["Instancias WhatsApp", "API", "Webhook", "WebSocket"]);
-  await ensurePlan("WooAPI Reseller", 197, 0, 0, 0, 10, 5, 20000, 10, ["Revenda", "Subcontas", "Cotas por cliente", "Webhooks"]);
-  await ensurePlan("WooAPI Pro", 297, 0, 0, 0, 20, 10, 50000, 0, ["Logs avancados", "Chatwoot", "Typebot", "n8n"]);
-  await ensurePlan("WooAPI Enterprise", 697, 0, 0, 0, 50, 25, 200000, 50, ["White-label", "Multi-revendedor", "Suporte prioritario", "Modulos extras"]);
+  await ensurePlan("Teste Gratis", 0, 0, 0, 0, 1, 1, 200, 0, ["Teste de 1 hora", "1 instancia WhatsApp", "API", "Webhook", "Conta excluida automaticamente"]);
+  await ensurePlan("Wozapi Por Instancia", 59.9, 0, 0, 0, 1, 1, 5000, 0, ["1 instancia WhatsApp", "API", "Webhook", "WebSocket"]);
+  await ensurePlan("Wozapi Pro", 179.9, 0, 0, 0, 3, 3, 20000, 0, ["3 instancias", "Logs avancados", "Chatwoot", "Typebot", "n8n"]);
+  await ensurePlan("Wozapi Scale", 399.9, 0, 0, 0, 8, 8, 80000, 0, ["8 instancias", "Campanhas", "Filas dedicadas", "Suporte prioritario"]);
+  await ensurePlan("Wozapi Enterprise", 899.9, 0, 0, 0, 20, 20, 250000, 50, ["20 instancias", "Subcontas", "Revenda", "Suporte enterprise"]);
 
   const testPlan = await get("SELECT id FROM plans WHERE name = ?", ["Teste Gratis"]);
   if (testPlan) {
@@ -1291,11 +1369,11 @@ async function ensureDefaultCommercialPlans() {
     await run("UPDATE plans SET name = ? WHERE id = ?", ["Teste Gratis", starter.id]);
   }
 
-  const testPlanId = await ensurePlan("Teste Gratis", 0, 1, 1, 200, 0, ["Teste de 2 dias", "1 instancia WhatsApp", "API", "Webhook", "Conta excluida automaticamente"]);
-  await ensurePlan("WooAPI Starter", 97, 2, 2, 5000, 0, ["Instancias WhatsApp", "API", "Webhook", "WebSocket"]);
-  await ensurePlan("WooAPI Reseller", 197, 10, 5, 20000, 10, ["Revenda", "Subcontas", "Cotas por cliente", "Webhooks"]);
-  await ensurePlan("WooAPI Pro", 297, 20, 10, 50000, 0, ["Logs avancados", "Chatwoot", "Typebot", "n8n"]);
-  await ensurePlan("WooAPI Enterprise", 697, 50, 25, 200000, 50, ["White-label", "Multi-revendedor", "Suporte prioritario", "Modulos extras"]);
+  const testPlanId = await ensurePlan("Teste Gratis", 0, 1, 1, 200, 0, ["Teste de 1 hora", "1 instancia WhatsApp", "API", "Webhook", "Conta excluida automaticamente"]);
+  await ensurePlan("Wozapi Por Instancia", 59.9, 1, 1, 5000, 0, ["1 instancia WhatsApp", "API", "Webhook", "WebSocket"]);
+  await ensurePlan("Wozapi Pro", 179.9, 3, 3, 20000, 0, ["3 instancias", "Logs avancados", "Chatwoot", "Typebot", "n8n"]);
+  await ensurePlan("Wozapi Scale", 399.9, 8, 8, 80000, 0, ["8 instancias", "Campanhas", "Filas dedicadas", "Suporte prioritario"]);
+  await ensurePlan("Wozapi Enterprise", 899.9, 20, 20, 250000, 50, ["20 instancias", "Subcontas", "Revenda", "Suporte enterprise"]);
 
   for (const legacyName of ["Starter API", "Beta"]) {
     const legacyPlan = await get("SELECT id FROM plans WHERE name = ?", [legacyName]);
@@ -1303,6 +1381,53 @@ async function ensureDefaultCommercialPlans() {
     await run("UPDATE accounts SET plan_id = ? WHERE plan_id = ?", [testPlanId, legacyPlan.id]);
     await run("DELETE FROM plans WHERE id = ?", [legacyPlan.id]);
   }
+}
+
+async function ensureDefaultSuperAdmin() {
+  const email = String(process.env.WOZAPI_OWNER_EMAIL || "").trim();
+  const password = String(process.env.WOZAPI_OWNER_PASSWORD || "");
+  const name = String(process.env.WOZAPI_OWNER_NAME || "Wozapi Owner").trim();
+  const accountName = String(process.env.WOZAPI_OWNER_ACCOUNT_NAME || "Wozapi Owner").trim();
+  if (!email || !password) {
+    return;
+  }
+  const passwordHash = hashPassword(password);
+
+  const existingUser = await get("SELECT id, account_id FROM users WHERE lower(email) = lower(?)", [email]);
+  if (existingUser?.id) {
+    const accountId = Number(existingUser.account_id || 0);
+    if (accountId) {
+      await run(
+        "UPDATE accounts SET account_type = ?, status = ?, owner_name = ?, owner_email = ?, email = COALESCE(email, ?), updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        ["owner", "active", name, email, email, accountId]
+      );
+    }
+    await run(
+      "UPDATE users SET name = ?, email = ?, password = ?, role = ?, status = ? WHERE id = ?",
+      [name, email, passwordHash, "super_admin", "active", existingUser.id]
+    );
+    return;
+  }
+
+  const existingAccount = await get("SELECT id FROM accounts WHERE lower(owner_email) = lower(?) OR lower(email) = lower(?)", [email, email]);
+  let accountId = Number(existingAccount?.id || 0);
+  if (accountId) {
+    await run(
+      "UPDATE accounts SET name = COALESCE(name, ?), account_type = ?, status = ?, owner_name = ?, owner_email = ?, email = COALESCE(email, ?), updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+      [accountName, "owner", "active", name, email, email, accountId]
+    );
+  } else {
+    const account = await run(
+      "INSERT INTO accounts (name, account_type, instance_quota, max_client_accounts, owner_name, owner_email, email, status, billing_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [accountName, "owner", 999, 999, name, email, email, "active", "active"]
+    );
+    accountId = Number(account.lastInsertRowid);
+  }
+
+  await run(
+    "INSERT INTO users (account_id, name, email, password, role, status) VALUES (?, ?, ?, ?, ?, ?)",
+    [accountId, name, email, passwordHash, "super_admin", "active"]
+  );
 }
 
 async function deleteExpiredTrialAccounts() {
@@ -1314,7 +1439,7 @@ async function deleteExpiredTrialAccounts() {
     if (!accountId) continue;
 
     await audit(accountId, null, "trial.account.auto_deleted", {
-      reason: "Teste de 2 dias expirado",
+      reason: "Teste de 1 hora expirado",
       deleted_at: new Date().toISOString()
     });
 
@@ -1370,6 +1495,7 @@ async function deleteExpiredTrialAccounts() {
 async function startServer() {
   await migrate();
   await ensureDefaultCommercialPlans();
+  await ensureDefaultSuperAdmin();
   assertProductionReady();
   const storedAdminToken = await get("SELECT setting_value FROM system_settings WHERE setting_key = ?", ["wooapi_admin_token"]);
   let runtimeUazAdminToken = String(storedAdminToken?.setting_value || WOOAPI_ADMIN_TOKEN || "");
@@ -1390,6 +1516,12 @@ async function startServer() {
       const url = new URL(request.url || "", "http://localhost");
       const match = url.pathname.match(/^\/ws\/instance\/(.+)$/);
       if (match) {
+        const clientIP = request.socket?.remoteAddress || "unknown";
+        if (!check("ws-upgrade", clientIP, 20, 60_000)) {
+          socket.write("HTTP/1.1 429 Too Many Requests\r\n\r\n");
+          socket.destroy();
+          return;
+        }
         instanceWsServer.handleUpgrade(request, socket, head, (ws) => {
           instanceWsServer.emit("connection", ws, match[1]);
         });
@@ -1400,25 +1532,48 @@ async function startServer() {
   });
 
   instanceWsServer.on("connection", async (ws, apiKey: string) => {
-    const inst = await get(`
-      SELECT instances.id, instances.account_id, accounts.status AS account_status
-      FROM instances LEFT JOIN accounts ON accounts.id = instances.account_id
-      WHERE instances.api_key = ? AND instances.deleted_at IS NULL
-    `, [apiKey]);
-    if (!inst || inactiveAccountStatuses.has(String(inst.account_status || ""))) {
-      ws.close(4001, "Unauthorized");
-      return;
+    const authTimeout = setTimeout(() => {
+      ws.close(4002, "Auth timeout");
+    }, 5000);
+
+    let authTimer: ReturnType<typeof setInterval> | null = null;
+    try {
+      const inst = await get(`
+        SELECT instances.id, instances.account_id, accounts.status AS account_status
+        FROM instances LEFT JOIN accounts ON accounts.id = instances.account_id
+        WHERE instances.api_key = ? AND instances.deleted_at IS NULL
+      `, [apiKey]);
+      clearTimeout(authTimeout);
+      if (!inst || inactiveAccountStatuses.has(String(inst.account_status || ""))) {
+        ws.close(4001, "Unauthorized");
+        return;
+      }
+      const instanceId = Number(inst.id);
+      const clients = instanceWsClients.get(instanceId) || new Set();
+      clients.add(ws);
+      instanceWsClients.set(instanceId, clients);
+      ws.send(JSON.stringify({ event: "connection.status", data: { status: "connected", instanceId } }));
+      ws.on("close", () => {
+        clients.delete(ws);
+        if (!clients.size) instanceWsClients.delete(instanceId);
+        if (authTimer) clearInterval(authTimer);
+      });
+      ws.on("error", () => {
+        clients.delete(ws);
+        if (authTimer) clearInterval(authTimer);
+      });
+      authTimer = setInterval(() => {
+        if (ws.readyState === ws.OPEN) {
+          ws.ping();
+        } else {
+          clearInterval(authTimer!);
+          authTimer = null;
+        }
+      }, 30000);
+    } catch {
+      clearTimeout(authTimeout);
+      ws.close(4003, "Auth error");
     }
-    const instanceId = Number(inst.id);
-    const clients = instanceWsClients.get(instanceId) || new Set();
-    clients.add(ws);
-    instanceWsClients.set(instanceId, clients);
-    ws.send(JSON.stringify({ event: "connection.status", data: { status: "connected", instanceId } }));
-    ws.on("close", () => {
-      clients.delete(ws);
-      if (!clients.size) instanceWsClients.delete(instanceId);
-    });
-    ws.on("error", () => clients.delete(ws));
   });
 
   function emitInstanceWs(instanceId: number, event: string, data: any) {
@@ -1501,7 +1656,7 @@ async function startServer() {
     const readiness = productionReadiness();
     res.status(bridgeOk ? 200 : 503).json({
       ok: bridgeOk,
-      name: "WooAPI",
+      name: "Wozapi",
       database: DATABASE_URL ? "postgresql_configured" : "sqlite",
       bridge: bridgeOk ? "available" : "unavailable",
       redis: redisOk ? "available" : "unavailable",
@@ -1512,8 +1667,10 @@ async function startServer() {
       timestamp: new Date().toISOString()
     });
   });
-  app.get("/docs/wooapi", async (_req, res) => res.type("html").sendFile(path.resolve("docs/wooapi-public.html")));
+  app.get("/docs/wozapi", async (_req, res) => res.type("html").sendFile(path.resolve("docs/wooapi-public.html")));
+  app.get("/docs/wooapi", async (_req, res) => res.redirect("/docs/wozapi"));
   app.get("/wooapi", async (_req, res) => res.type("html").sendFile(path.resolve("docs/wooapi-sales.html")));
+  app.get("/wozapi", async (_req, res) => res.redirect("/wooapi"));
   app.get("/vendas", async (_req, res) => res.redirect("/wooapi"));
   app.get("/docs/wooapi-api.md", async (_req, res) => res.sendFile(path.resolve("docs/wooapi-api.md")));
   app.get("/docs/production-readiness.md", async (_req, res) => res.sendFile(path.resolve("docs/production-readiness.md")));
@@ -1528,8 +1685,8 @@ async function startServer() {
   });
   app.get("/docs", async (_req, res) => res.type("html").send(`<!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>WooAPI - OpenAPI</title><link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css"></head>
-<body><div style="padding:12px 20px;background:#0f172a;color:white;font-family:system-ui"><strong>WooAPI</strong> <a href="/docs/wooapi" style="color:#86efac;margin-left:18px">Documentacao publica</a> <a href="/postman/wooapi.postman_collection.json" style="color:#86efac;margin-left:18px">Postman</a></div><div id="swagger-ui"></div><script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+<title>Wozapi - OpenAPI</title><link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css"></head>
+<body><div style="padding:12px 20px;background:#0f172a;color:white;font-family:system-ui"><strong>Wozapi</strong> <a href="/docs/wozapi" style="color:#86efac;margin-left:18px">Documentacao publica</a> <a href="/postman/wooapi.postman_collection.json" style="color:#86efac;margin-left:18px">Postman</a></div><div id="swagger-ui"></div><script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
 <script>SwaggerUIBundle({url:"/openapi.json",dom_id:"#swagger-ui",deepLinking:true,displayRequestDuration:true,persistAuthorization:true});</script></body></html>`));
 
   const inactiveAccountStatuses = new Set(["paused", "blocked", "expired", "cancelled"]);
@@ -1792,6 +1949,9 @@ async function startServer() {
   function sanitizePublicError(error: any) {
     const raw = String(error?.message || error || "");
     if (!raw) return "Operação não concluída";
+    if (/fetch failed|ECONNREFUSED|ECONNRESET|ETIMEDOUT|UND_ERR|socket hang up|connect ECONN/i.test(raw)) {
+      return "WooAPI Core offline. Inicie o bridge na porta 3001 e tente gerar o QR novamente.";
+    }
     if (/token|secret|sqlite|database|stack|trace|bridge|internal|core|go\.mau|whatsmeow/i.test(raw)) {
       return "Operação não concluída pelo WooAPI Core";
     }
@@ -1889,7 +2049,7 @@ async function startServer() {
       if (!account) return;
 
       const instName = instance?.name || `Instancia #${instanceId}`;
-      const appUrl = APP_URL || "https://wooapi.com.br";
+      const appUrl = APP_URL || "https://painel.wozapi.com.br";
 
       if (account.owner_email && SMTP_HOST) {
         const mailer = createMailer();
@@ -1929,7 +2089,8 @@ async function startServer() {
   }
 
   async function bridgeFetch(pathname: string, options: RequestInit = {}) {
-    const response = await fetch(`${BRIDGE_URL}${pathname}`, {
+    const baseURL = await bridgeURLForPath(pathname);
+    const response = await fetch(`${baseURL}${pathname}`, {
       ...options,
       headers: {
         "Content-Type": "application/json",
@@ -1951,7 +2112,8 @@ async function startServer() {
   }
 
   async function bridgeBinaryFetch(pathname: string, options: RequestInit = {}) {
-    const response = await fetch(`${BRIDGE_URL}${pathname}`, {
+    const baseURL = await bridgeURLForPath(pathname);
+    const response = await fetch(`${baseURL}${pathname}`, {
       ...options,
       headers: {
         "Content-Type": "application/json",
@@ -3048,26 +3210,54 @@ async function startServer() {
   async function dispatchIntegrations(instanceId: number, accountId: number, event: string, payload: any) {
     if (event !== "message.received") return;
     const message = payload?.message;
-    if (!message || message.content_type !== "text" || !message.content_text) return;
+    if (!message) return;
     const contactKey = message.author_phone || payload?.conversation?.contact_phone || payload?.conversation?.remote_jid;
     if (!contactKey) return;
-    await callTypebot(instanceId, accountId, String(contactKey), String(message.content_text)).catch(async (error) => {
-      await run("INSERT INTO webhook_events (account_id, instance_id, event, payload, status, error) VALUES (?, ?, ?, ?, ?, ?)", [
-        accountId,
-        instanceId,
-        "integration.typebot.failed",
-        JSON.stringify({ contactKey, messageId: message.id }),
-        "failed",
-        String(error?.message || error)
-      ]);
-    });
-    chatwootSyncQueue.add("sync-message", {
+
+    if (message.content_type === "text" && message.content_text) {
+      await callTypebot(instanceId, accountId, String(contactKey), String(message.content_text)).catch(async (error) => {
+        await run("INSERT INTO webhook_events (account_id, instance_id, event, payload, status, error) VALUES (?, ?, ?, ?, ?, ?)", [
+          accountId,
+          instanceId,
+          "integration.typebot.failed",
+          JSON.stringify({ contactKey, messageId: message.id }),
+          "failed",
+          String(error?.message || error)
+        ]);
+      });
+    }
+
+    const jobData: any = {
       instanceId,
       accountId,
       contactPhone: String(contactKey),
       contactName: message.author_push_name || undefined,
-      messageText: String(message.content_text),
-      messageId: message.id
+      messageText: message.content_text || undefined,
+      messageId: message.id,
+      contentType: message.content_type || "text",
+      mediaUrl: undefined as string | undefined,
+    };
+
+    if (message.content_type !== "text" && message.content_text && message.content_text.startsWith("http")) {
+      jobData.mediaUrl = message.content_text;
+    }
+
+    chatwootSyncQueue.add("sync-message", jobData).catch(() => null);
+  }
+
+  async function dispatchIntegrationsStatus(instanceId: number, accountId: number, contactPhone: string | undefined, messageId: string, status: string) {
+    if (!contactPhone || !messageId) return;
+    const chatwootEnabled = await get(
+      "SELECT 1 FROM integration_settings WHERE instance_id = ? AND provider = ? AND enabled = 1",
+      [instanceId, "chatwoot"]
+    );
+    if (!chatwootEnabled) return;
+    chatwootSyncQueue.add("sync-status", {
+      instanceId,
+      accountId,
+      contactPhone: String(contactPhone),
+      messageId,
+      status
     }).catch(() => null);
   }
 
@@ -3338,7 +3528,7 @@ async function startServer() {
         hours: TRIAL_TEST_HOURS,
         ends_at: trialEndsAt,
         auto_delete: true,
-        message: "A conta teste dura 2 dias e sera excluida automaticamente com todos os dados criados no teste."
+        message: "A conta teste dura 1 hora e sera excluida automaticamente com todos os dados criados no teste."
       }
     });
   });
@@ -3346,13 +3536,15 @@ async function startServer() {
   app.post("/api/auth/login", async (req, res) => {
     const { email, password } = req.body || {};
     const user = await get("SELECT * FROM users WHERE email = ?", [email]);
-    if (!user || !verifyPassword(password, user.password)) return res.status(401).json({ error: "Inválido" });
+    if (!user) return res.status(401).json({ error: "Inválido" });
+    const passwordResult = verifyPassword(password, user.password);
+    if (!passwordResult) return res.status(401).json({ error: "Inválido" });
 
     if (user.status && user.status !== "active") return res.status(403).json({ error: "Usuário bloqueado" });
     const account = await get("SELECT * FROM accounts WHERE id = ? AND deleted_at IS NULL", [user.account_id]);
     if (!accountCanOperate(account) && user.role !== "super_admin") return res.status(403).json({ error: "Conta pausada ou bloqueada" });
 
-    if (!String(user.password).startsWith("pbkdf2$")) {
+    if (passwordResult === "needs_rehash" || !String(user.password).startsWith("pbkdf2$")) {
       await run("UPDATE users SET password = ? WHERE id = ?", [hashPassword(password), user.id]);
     }
 
@@ -4556,7 +4748,7 @@ async function startServer() {
     if (!name) return res.status(400).json({ error: "Nome da instancia obrigatorio" });
     const limit = await ensureInstanceCapacity(Number(child.id), 1);
     if (!limit.allowed) return res.status(403).json({ error: limit.error });
-    const created = await createInstanceWithCredentials(Number(child.id), name, req.body?.webhook_url || req.body?.webhookUrl || req.body?.url);
+    const created = await createInstanceWithCredentials(Number(child.id), name, req.body?.webhook_url || req.body?.webhookUrl || req.body?.url, req.body?.engine);
     await audit(Number(req.accountId), Number(req.user?.userId), "reseller.child_instance.created", { clientAccountId: child.id, instanceId: created.id, name });
     res.json({
       id: created.id,
@@ -4597,7 +4789,7 @@ async function startServer() {
     const { name } = req.body || {};
     const limit = await ensureInstanceCapacity(Number(req.accountId), 1);
     if (!limit.allowed) return res.status(403).json({ error: limit.error });
-    const created = await createInstanceWithCredentials(Number(req.accountId), name, req.body?.webhook_url || req.body?.webhookUrl || req.body?.url);
+    const created = await createInstanceWithCredentials(Number(req.accountId), name, req.body?.webhook_url || req.body?.webhookUrl || req.body?.url, req.body?.engine);
     await audit(Number(req.accountId), Number(req.user?.userId), "instance.created", { instanceId: created.id, name });
     res.json({
       id: created.id,
@@ -4620,7 +4812,11 @@ async function startServer() {
         "UPDATE instances SET status = ?, connection_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND account_id = ? AND deleted_at IS NULL",
         ["disconnected", "disconnected", req.params.id, req.accountId]
       ).catch(() => null);
-      res.status(502).json({ error: sanitizePublicError(error) });
+      const rawMessage = String((error as any)?.message || error || "");
+      const publicMessage = /Wozapi 2\.0 upstream|WAHA|WOZAPI_V2_UPSTREAM_URL/i.test(rawMessage)
+        ? rawMessage.slice(0, 500)
+        : sanitizePublicError(error);
+      res.status(502).json({ error: publicMessage });
     }
   });
 
@@ -4643,7 +4839,7 @@ async function startServer() {
 
   app.get("/api/whatsapp/instances/:id/webhooks", async (req: AccountRequest, res) => {
     const inst = await getAccountScopedInstance(req, req.params.id);
-    if (!inst) return res.status(404).json({ error: "Instancia nao encontrada" });
+    if (!inst) return res.json([]);
     const rows = await query("SELECT * FROM instance_webhooks WHERE account_id = ? AND instance_id = ? ORDER BY id DESC", [inst.account_id, inst.id]);
     res.json(rows.map(serializeWebhook));
   });
@@ -4716,7 +4912,7 @@ async function startServer() {
 
   app.get("/api/whatsapp/instances/:id/webhook-logs", async (req: AccountRequest, res) => {
     const inst = await getAccountScopedInstance(req, req.params.id, "id, account_id");
-    if (!inst) return res.status(404).json({ error: "Instancia nao encontrada" });
+    if (!inst) return res.json([]);
     const limit = Math.min(Math.max(Number(req.query.limit || 100), 1), 300);
     res.json((await query(`
       SELECT webhook_delivery_logs.*, instance_webhooks.name AS webhook_name
@@ -4730,7 +4926,7 @@ async function startServer() {
 
   app.get("/api/whatsapp/instances/:id/webhook-events", async (req: AccountRequest, res) => {
     const inst = await getAccountScopedInstance(req, req.params.id, "id, account_id");
-    if (!inst) return res.status(404).json({ error: "Instancia nao encontrada" });
+    if (!inst) return res.json([]);
     res.json(await query("SELECT id, event, status, response_status, error, attempts, retry_count, last_attempt_at, next_retry_at, delivered_at, created_at FROM webhook_events WHERE account_id = ? AND instance_id = ? ORDER BY id DESC LIMIT 100", [inst.account_id, inst.id]));
   });
 
@@ -5040,7 +5236,7 @@ async function startServer() {
 
     const limit = await ensureInstanceCapacity(Number(account.id), 1);
     if (!limit.allowed) return res.status(403).json({ error: limit.error || "instance quota exceeded", details: limit.usage });
-    const created = await createInstanceWithCredentials(Number(account.id), name, req.body?.webhook_url || req.body?.webhookUrl || req.body?.url);
+    const created = await createInstanceWithCredentials(Number(account.id), name, req.body?.webhook_url || req.body?.webhookUrl || req.body?.url, req.body?.engine);
     return res.json({
       response: "Instance created successfully",
       instance: serializeUazInstance(created.inst),
@@ -5391,20 +5587,46 @@ async function startServer() {
   });
 
   app.put("/chatwoot/config", async (req, res) => {
-    const inst = await requireUazInstance(req, res);
+    const inst = await requireInstanceApiKey(req, res);
     if (!inst) return;
     const config = {
       apiUrl: req.body?.apiUrl || req.body?.url || "https://app.chatwoot.com",
-      accountId: req.body?.accountId || req.body?.account_id,
-      inboxId: req.body?.inboxId || req.body?.inbox_id,
-      apiToken: req.body?.apiToken || req.body?.api_token,
-      websiteToken: req.body?.websiteToken || req.body?.website_token
+      apiToken: req.body?.apiToken || req.body?.token || "",
+      accountId: Number(req.body?.accountId || req.body?.account_id || 0),
+      inboxId: Number(req.body?.inboxId || req.body?.inbox_id || 0),
     };
+    if (!config.apiToken || !config.accountId || !config.inboxId) {
+      return publicError(res, 400, "VALIDATION_ERROR", "apiToken, accountId e inboxId são obrigatórios");
+    }
     await run(
       "INSERT INTO integration_settings (account_id, instance_id, provider, enabled, config_json) VALUES (?, ?, ?, ?, ?) ON CONFLICT(instance_id, provider) DO UPDATE SET enabled = excluded.enabled, config_json = excluded.config_json, updated_at = CURRENT_TIMESTAMP",
       [inst.account_id, inst.id, "chatwoot", req.body?.enabled === false ? 0 : 1, JSON.stringify(config)]
     );
-    return res.json({ success: true, enabled: req.body?.enabled !== false, webhook: `${APP_URL}/api/v1/integrations/chatwoot/${inst.id}/webhook` });
+    const webhookUrl = `${APP_URL}/api/v1/integrations/chatwoot/${inst.id}/webhook`;
+    if (req.body?.enabled !== false) {
+      try {
+        const cwUrl = config.apiUrl;
+        const cwToken = config.apiToken;
+        const cwAccountId = config.accountId;
+        const cwInboxId = config.inboxId;
+        const existingWebhooks = await fetch(`${cwUrl}/api/v1/accounts/${cwAccountId}/inboxes/${cwInboxId}/webhooks`, {
+          method: "GET",
+          headers: { "Content-Type": "application/json", api_access_token: cwToken }
+        }).then(r => r.json()).catch(() => ({}));
+        const webhooks = existingWebhooks?.payload || existingWebhooks?.data || [];
+        const alreadyRegistered = Array.isArray(webhooks) && webhooks.some((w: any) => w.url === webhookUrl);
+        if (!alreadyRegistered) {
+          await fetch(`${cwUrl}/api/v1/accounts/${cwAccountId}/inboxes/${cwInboxId}/webhooks`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", api_access_token: cwToken },
+            body: JSON.stringify({ url: webhookUrl, subscriptions: ["message_created", "message_updated"] })
+          });
+        }
+      } catch (error) {
+        console.warn("[CHATWOOT_WEBHOOK_REGISTRATION_FAILED]", sanitizePublicError(error));
+      }
+    }
+    return res.json({ success: true, enabled: req.body?.enabled !== false, webhook: webhookUrl });
   });
 
   app.get("/quickreply", async (req, res) => {
@@ -5616,7 +5838,7 @@ const session = await requireV1Account(req, res);
     if (!name) return publicError(res, 400, "VALIDATION_ERROR", "Nome da instância obrigatório");
     const limit = await ensureInstanceCapacity(session.accountId, 1);
     if (!limit.allowed) return publicError(res, 403, "QUOTA_EXCEEDED", limit.error || "Cota de instâncias insuficiente", { quota: limit.usage });
-    const created = await createInstanceWithCredentials(Number(session.accountId), name, req.body?.webhook_url || req.body?.webhookUrl || req.body?.url);
+    const created = await createInstanceWithCredentials(Number(session.accountId), name, req.body?.webhook_url || req.body?.webhookUrl || req.body?.url, req.body?.engine);
     await audit(session.accountId, Number(session.payload.userId), "instance.created", { instanceId: created.id, name });
     return publicSuccess(res, {
       ...serializeInstance(created.inst),
@@ -6999,6 +7221,8 @@ const session = await requireV1Account(req, res);
           io.to(`instance:${numericInstanceId}`).emit("message.status", { messageId, status, message: freshMessage });
           emitUazSse(numericInstanceId, "messages.status", { id: messageId, status });
           await dispatchWebhook(numericInstanceId, "message.status", { message: freshMessage, status, receiptType }).catch(() => null);
+          const contactPhone = freshMessage?.author_phone || (await get("SELECT remote_jid FROM conversations WHERE id = ?", [freshMessage?.conversation_id]))?.remote_jid || "";
+          dispatchIntegrationsStatus(numericInstanceId, numericAccountId, String(contactPhone), messageId, status).catch(() => null);
         }
         if (updated.length) {
           io.to("admin:monitor").emit("message.status", { accountId: numericAccountId, instanceId: numericInstanceId, status, messages: updated });

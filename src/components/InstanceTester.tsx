@@ -33,12 +33,12 @@ export default function InstanceTester({ instance, apiFetch, onClose }: Instance
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState<any>(null);
   const [interactiveMode, setInteractiveMode] = useState<'buttons' | 'menu'>('buttons');
-  const [interactiveTitle, setInteractiveTitle] = useState('Atendimento WooAPI');
+  const [interactiveTitle, setInteractiveTitle] = useState('Atendimento Wozapi');
   const [interactiveText, setInteractiveText] = useState('Escolha uma opcao para continuar.');
   const [interactiveFooter, setInteractiveFooter] = useState('Mensagem experimental');
   const [buttons, setButtons] = useState([
     { text: 'Falar agora', url: 'https://wa.me/5548933806836' },
-    { text: 'Ver planos', url: 'https://wooapi.com.br/planos' },
+    { text: 'Ver planos', url: 'https://Wozapi.com.br/planos' },
     { text: 'Encerrar', url: '' }
   ]);
   const [menuRows, setMenuRows] = useState([

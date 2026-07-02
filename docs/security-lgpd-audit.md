@@ -1,4 +1,4 @@
-# Auditoria de Seguranca e LGPD - WooAPI
+# Auditoria de Seguranca e LGPD - Wozapi
 
 Data da analise: 2026-06-07
 
@@ -361,10 +361,10 @@ Implementado scheduler a cada 1h que aplica automaticamente as politicas de `dat
 Novo pacote `mcp-server/` para integracao com assistentes IA via protocolo MCP:
 
 - 17 ferramentas organizadas em 4 categorias: mensagens, grupos, contatos, instancias
-- 3 resources (`wooapi://conversations`, `wooapi://instances`, `wooapi://messages`)
+- 3 resources (`Wozapi://conversations`, `Wozapi://instances`, `Wozapi://messages`)
 - 4 prompts (`customer_support_agent`, `broadcast_campaign`, `group_management`, `contact_research`)
 - Transporte stdio, compativel com Claude Desktop e Cursor
-- URI scheme `wooapi://` para resources
+- URI scheme `Wozapi://` para resources
 
 ### Cobertura de auditoria atualizada
 

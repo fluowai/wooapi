@@ -1,11 +1,12 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "WooAPI",
+    "title": "Wozapi",
     "version": "2.0.0",
-    "description": "API WooAPI multi-instancia para WhatsApp com webhooks, filas, campanhas, CRM, integracoes e observabilidade. Botoes nativos oficiais nao fazem parte deste produto."
+    "description": "API Wozapi multi-instancia para WhatsApp Web com webhooks, filas, campanhas, CRM, integracoes e observabilidade. Botoes nativos oficiais nao fazem parte deste produto."
   },
   "servers": [
+    { "url": "https://painel.wozapi.com.br", "description": "Producao - painel do cliente e API" },
     { "url": "http://localhost:3002", "description": "Desenvolvimento local" }
   ],
   "tags": [

@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>WooAPI - Documentacao da API WhatsApp</title>
-  <meta name="description" content="Documentacao publica da WooAPI: API WhatsApp multi-instancia com envio de mensagens, webhooks, Postman, n8n, campanhas, CRM e observabilidade.">
+  <title>Wozapi - Documentacao da API WhatsApp</title>
+  <meta name="description" content="Documentacao publica da Wozapi: API WhatsApp multi-instancia com envio de mensagens, webhooks, Postman, n8n, campanhas, CRM e observabilidade.">
   <style>
     :root {
       --bg: #f6f8fb;
@@ -157,7 +157,7 @@
     <aside>
       <div class="brand">
         <div class="logo">W</div>
-        <div><strong>WooAPI</strong><span>Documentacao publica</span></div>
+        <div><strong>Wozapi</strong><span>Documentacao publica</span></div>
       </div>
       <nav>
         <a href="#visao-geral">Visao geral</a>
@@ -179,9 +179,9 @@
     </aside>
     <main>
       <section class="hero" id="visao-geral">
-        <span class="pill">WooAPI WhatsApp REST + Webhooks</span>
+        <span class="pill">Wozapi WhatsApp REST + Webhooks</span>
         <h1>API WhatsApp multi-instancia para integracoes comerciais</h1>
-        <p class="lead">A WooAPI permite conectar instancias WhatsApp, enviar mensagens, receber eventos por webhook, integrar com n8n, Chatwoot e Typebot, operar campanhas com fila e acompanhar logs de entrega. Cada instancia possui API key propria, webhook proprio, eventos, logs e limites comerciais por plano.</p>
+        <p class="lead">A Wozapi permite conectar instancias WhatsApp, enviar mensagens, receber eventos por webhook, integrar com n8n, Chatwoot e Typebot, operar campanhas com fila e acompanhar logs de entrega. Cada instancia possui API key propria, webhook proprio, eventos, logs e limites comerciais por plano.</p>
         <div class="actions">
           <a class="btn primary" href="/postman/wooapi.postman_collection.json">Baixar Postman</a>
           <a class="btn" href="/openapi.json">OpenAPI JSON</a>
@@ -193,18 +193,18 @@
       <section class="section" id="links">
         <h2>Links Rapidos</h2>
         <div class="grid">
-          <div class="card metric"><span>Base local</span><strong>3002</strong><code>http://localhost:3002</code></div>
+          <div class="card metric"><span>Base oficial</span><strong>API</strong><code>https://painel.wozapi.com.br</code></div>
           <div class="card metric"><span>Autenticacao da instancia</span><strong>x-api-key</strong><code>woo_xxx</code></div>
-          <div class="card metric"><span>Eventos</span><strong>Webhook</strong><code>X-WooAPI-Signature</code></div>
+          <div class="card metric"><span>Eventos</span><strong>Webhook</strong><code>X-Wooapi-Signature</code></div>
         </div>
         <table>
           <thead><tr><th>Recurso</th><th>URL</th><th>Uso</th></tr></thead>
           <tbody>
-            <tr><td>Documentacao visual</td><td><a href="/docs/wooapi">/docs/wooapi</a></td><td>Pagina publica para clientes e integradores.</td></tr>
+            <tr><td>Documentacao visual</td><td><a href="/docs/wozapi">/docs/wozapi</a></td><td>Pagina publica para clientes e integradores.</td></tr>
             <tr><td>Swagger</td><td><a href="/docs">/docs</a></td><td>Testes tecnicos baseados no OpenAPI.</td></tr>
             <tr><td>Postman</td><td><a href="/postman/wooapi.postman_collection.json">/postman/wooapi.postman_collection.json</a></td><td>Collection importavel no Postman.</td></tr>
             <tr><td>OpenAPI</td><td><a href="/openapi.json">/openapi.json</a></td><td>Contrato para SDKs, gateways e automacoes.</td></tr>
-            <tr><td>Termos</td><td><a href="/terms">/terms</a></td><td>Termos de uso comercial da WooAPI.</td></tr>
+            <tr><td>Termos</td><td><a href="/terms">/terms</a></td><td>Termos de uso comercial da Wozapi.</td></tr>
           </tbody>
         </table>
       </section>
@@ -231,23 +231,23 @@
         <h2>Primeiros Passos</h2>
         <h3>1. Criar ou obter uma instancia</h3>
         <p>No painel, crie uma nova instancia. A resposta da API ja entrega <code>api_key</code>, <code>webhook_secret</code> e URLs de webhook da instancia.</p>
-        <pre><code>curl -X POST http://localhost:3002/api/v1/instances \
+        <pre><code>curl -X POST https://painel.wozapi.com.br/api/v1/instances \
   -H "Authorization: Bearer JWT_DA_CONTA" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "Atendimento Comercial",
-    "webhook_url": "https://seu-n8n.com/webhook/wooapi"
+    "webhook_url": "https://seu-n8n.com/webhook/wozapi"
   }'</code></pre>
         <h3>2. Conectar o WhatsApp</h3>
-        <pre><code>curl -X POST http://localhost:3002/api/v1/instances/17/connect \
+        <pre><code>curl -X POST https://painel.wozapi.com.br/api/v1/instances/17/connect \
   -H "x-api-key: woo_sua_api_key"</code></pre>
         <h3>3. Enviar uma mensagem</h3>
-        <pre><code>curl -X POST http://localhost:3002/api/v1/instances/17/send-text \
+        <pre><code>curl -X POST https://painel.wozapi.com.br/api/v1/instances/17/send-text \
   -H "x-api-key: woo_sua_api_key" \
   -H "Content-Type: application/json" \
   -d '{
     "number": "5548999999999",
-    "text": "Ola! Mensagem enviada pela WooAPI."
+    "text": "Ola! Mensagem enviada pela Wozapi."
   }'</code></pre>
       </section>
 
@@ -276,11 +276,11 @@
     "api_key": "woo_xxx",
     "webhook_secret": "whsec_xxx",
     "webhook": {
-      "webhooks_url": "https://api.seudominio.com/api/v1/instances/17/webhooks",
-      "webhook_events_url": "https://api.seudominio.com/api/v1/instances/17/webhook-events",
-      "webhook_logs_url": "https://api.seudominio.com/api/v1/instances/17/webhook-logs",
-      "webhook_test_url": "https://api.seudominio.com/api/v1/instances/17/webhook/test",
-      "signing_header": "X-WooAPI-Signature",
+      "webhooks_url": "https://painel.wozapi.com.br/api/v1/instances/17/webhooks",
+      "webhook_events_url": "https://painel.wozapi.com.br/api/v1/instances/17/webhook-events",
+      "webhook_logs_url": "https://painel.wozapi.com.br/api/v1/instances/17/webhook-logs",
+      "webhook_test_url": "https://painel.wozapi.com.br/api/v1/instances/17/webhook/test",
+      "signing_header": "X-Wooapi-Signature",
       "secret": "whsec_xxx"
     }
   }
@@ -307,7 +307,7 @@
           </tbody>
         </table>
         <h3>Enviar midia</h3>
-        <pre><code>curl -X POST http://localhost:3002/api/v1/instances/17/send-media \
+        <pre><code>curl -X POST https://painel.wozapi.com.br/api/v1/instances/17/send-media \
   -H "x-api-key: woo_sua_api_key" \
   -H "Content-Type: application/json" \
   -d '{
@@ -323,7 +323,7 @@
           <p>A API retorna HTTP <code>202</code> com <code>queued: true</code>, <code>jobId</code>, <code>pendingMessageId</code> e a mensagem salva como <code>pending</code>. O resultado final chega depois pelos webhooks <code>message.sent</code> ou <code>message.failed</code>.</p>
           <p><strong>Importante:</strong> requer <code>QUEUE_DRIVER=bullmq</code>, Redis disponivel e o worker <code>npm run worker:messages</code> em execucao. Se a fila nao estiver disponivel, a API retorna <code>QUEUE_UNAVAILABLE</code>.</p>
         </div>
-        <pre><code>curl -X POST http://localhost:3002/api/v1/instances/17/send-text \
+        <pre><code>curl -X POST https://painel.wozapi.com.br/api/v1/instances/17/send-text \
   -H "x-api-key: woo_sua_api_key" \
   -H "Content-Type: application/json" \
   -d '{
@@ -342,14 +342,14 @@
   }
 }</code></pre>
         <h3>Enviar localizacao</h3>
-        <pre><code>curl -X POST http://localhost:3002/api/v1/instances/17/send-location \
+        <pre><code>curl -X POST https://painel.wozapi.com.br/api/v1/instances/17/send-location \
   -H "x-api-key: woo_sua_api_key" \
   -H "Content-Type: application/json" \
   -d '{
     "number": "5548999999999",
     "latitude": -27.5949,
     "longitude": -48.5482,
-    "name": "WooAPI",
+    "name": "Wozapi",
     "address": "Florianopolis - SC"
   }'</code></pre>
       </section>
@@ -358,7 +358,7 @@
         <h2>Webhooks</h2>
         <p>Webhooks entregam eventos da instancia para sistemas externos. Cada webhook tem URL, secret HMAC, eventos filtrados, retentativas e logs de entrega.</p>
         <div class="ok">
-          <strong>Assinatura:</strong> a WooAPI envia <code>X-WooAPI-Signature</code> no formato <code>sha256=&lt;hmac_sha256_raw_body_hex&gt;</code>. Use o <code>webhook_secret</code> da instancia ou do webhook criado.
+          <strong>Assinatura:</strong> a Wozapi envia <code>X-Wooapi-Signature</code> no formato <code>sha256=&lt;hmac_sha256_raw_body_hex&gt;</code>. Use o <code>webhook_secret</code> da instancia ou do webhook criado.
         </div>
         <table>
           <thead><tr><th>Metodo</th><th>Endpoint</th><th>Descricao</th></tr></thead>
@@ -374,12 +374,12 @@
           </tbody>
         </table>
         <h3>Criar webhook</h3>
-        <pre><code>curl -X POST http://localhost:3002/api/v1/instances/17/webhooks \
+        <pre><code>curl -X POST https://painel.wozapi.com.br/api/v1/instances/17/webhooks \
   -H "x-api-key: woo_sua_api_key" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "n8n Atendimento",
-    "url": "https://seu-n8n.com/webhook/wooapi",
+    "url": "https://seu-n8n.com/webhook/wozapi",
     "events": ["message.received", "message.sent", "instance.connected", "instance.disconnected"],
     "retry_enabled": true,
     "max_attempts": 5
@@ -396,7 +396,7 @@
 
       <section class="section" id="n8n">
         <h2>Integracao Com n8n</h2>
-        <p>Para conectar no n8n, o integrador precisa apenas da URL da API, ID da instancia e API key. Para receber eventos, crie um node Webhook no n8n e cadastre a URL dele na WooAPI.</p>
+        <p>Para conectar no n8n, o integrador precisa apenas da URL da API, ID da instancia e API key. Para receber eventos, crie um node Webhook no n8n e cadastre a URL dele na Wozapi.</p>
         <div class="grid two">
           <div class="card">
             <h3>Enviar pelo n8n</h3>
@@ -421,7 +421,7 @@
         <h3>Node HTTP Request - enviar texto</h3>
         <pre><code>{
   "method": "POST",
-  "url": "https://api.seudominio.com/api/v1/instances/17/send-text",
+  "url": "https://painel.wozapi.com.br/api/v1/instances/17/send-text",
   "headers": {
     "x-api-key": "woo_sua_api_key",
     "Content-Type": "application/json"
@@ -433,17 +433,17 @@
 }</code></pre>
         <h3>Fluxo recomendado no n8n</h3>
         <ol>
-          <li><strong>Webhook Trigger</strong>: recebe <code>message.received</code> da WooAPI.</li>
+          <li><strong>Webhook Trigger</strong>: recebe <code>message.received</code> da Wozapi.</li>
           <li><strong>IF/Switch</strong>: separa mensagem de texto, midia, grupo ou contato.</li>
           <li><strong>CRM/Planilha/Banco</strong>: registra lead e historico.</li>
           <li><strong>IA ou regras</strong>: gera resposta.</li>
-          <li><strong>HTTP Request</strong>: envia resposta pela WooAPI usando a mesma API key.</li>
+          <li><strong>HTTP Request</strong>: envia resposta pela Wozapi usando a mesma API key.</li>
         </ol>
       </section>
 
       <section class="section" id="postman">
         <h2>Postman</h2>
-        <p>A collection WooAPI ja inclui variaveis de ambiente e requests para health, instancias, status, envio, webhooks, contatos, campanhas, logs e administracao.</p>
+        <p>A collection Wozapi ja inclui variaveis de ambiente e requests para health, instancias, status, envio, webhooks, contatos, campanhas, logs e administracao.</p>
         <div class="actions">
           <a class="btn primary" href="/postman/wooapi.postman_collection.json">Baixar collection</a>
           <a class="btn" href="/openapi.json">Baixar OpenAPI</a>
@@ -452,12 +452,12 @@
         <table>
           <thead><tr><th>Variavel</th><th>Exemplo</th><th>Descricao</th></tr></thead>
           <tbody>
-            <tr><td><code>baseUrl</code></td><td><code>https://api.seudominio.com</code></td><td>URL publica da API.</td></tr>
+            <tr><td><code>baseUrl</code></td><td><code>https://painel.wozapi.com.br</code></td><td>URL publica da API.</td></tr>
             <tr><td><code>jwt</code></td><td><code>eyJ...</code></td><td>Token de conta para painel/admin.</td></tr>
             <tr><td><code>instanceId</code></td><td><code>17</code></td><td>ID numerico da instancia.</td></tr>
             <tr><td><code>instanceToken</code></td><td><code>woo_xxx</code></td><td>API key da instancia.</td></tr>
             <tr><td><code>number</code></td><td><code>5548999999999</code></td><td>Numero alvo com DDI e DDD.</td></tr>
-            <tr><td><code>webhookUrl</code></td><td><code>https://n8n.../webhook/wooapi</code></td><td>URL de destino para eventos.</td></tr>
+            <tr><td><code>webhookUrl</code></td><td><code>https://n8n.../webhook/wozapi</code></td><td>URL de destino para eventos.</td></tr>
           </tbody>
         </table>
       </section>
@@ -502,7 +502,7 @@
 
       <section class="section" id="campanhas">
         <h2>Campanhas, Fila e CRM</h2>
-        <p>A WooAPI possui recursos locais de campanhas, recipients, delays, pausar/cancelar, relatorios, leads, tags, notas, respostas rapidas e campos personalizados.</p>
+        <p>A Wozapi possui recursos locais de campanhas, recipients, delays, pausar/cancelar, relatorios, leads, tags, notas, respostas rapidas e campos personalizados.</p>
         <table>
           <thead><tr><th>Metodo</th><th>Endpoint</th><th>Descricao</th></tr></thead>
           <tbody>
@@ -535,7 +535,7 @@
       <section class="section" id="limitacoes">
         <h2>Limitacoes Comerciais Importantes</h2>
         <div class="notice">
-          <p><strong>A WooAPI e uma plataforma de automacao para WhatsApp baseada em sessoes conectadas pelo cliente.</strong> Existe risco de desconexao, bloqueio, limitacao de conta, mudancas de comportamento do provedor e incompatibilidades futuras.</p>
+          <p><strong>A Wozapi e uma plataforma de automacao para WhatsApp baseada em sessoes conectadas pelo cliente.</strong> Existe risco de desconexao, bloqueio, limitacao de conta, mudancas de comportamento do provedor e incompatibilidades futuras.</p>
           <p>Para clientes que exigem botoes nativos oficiais, garantias formais de entrega/renderizacao ou SLA contratado diretamente com o provedor, avalie um projeto separado com canais oficiais.</p>
         </div>
         <ul>
@@ -548,7 +548,7 @@
         </ul>
       </section>
 
-      <p class="footer">WooAPI - Documentacao publica gerada para integradores. Em producao, substitua <code>localhost:3002</code> pelo dominio configurado em <code>APP_URL</code>.</p>
+      <p class="footer">Wozapi - Documentacao publica para integradores. Vendas em <code>https://wozapi.com.br</code> e painel/API em <code>https://painel.wozapi.com.br</code>.</p>
     </main>
   </div>
 </body>

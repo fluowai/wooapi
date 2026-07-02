@@ -8,6 +8,7 @@
     "build:server": "tsc --noEmit",
     "build": "vite build",
     "start": "tsx server.ts",
+    "engine:v2": "tsx src/engines/wozapi-v2-bridge.ts",
     "worker:webhooks": "tsx src/workers/webhook.worker.ts",
     "worker:messages": "tsx src/workers/message.worker.ts",
     "worker:monitor": "tsx src/workers/monitor.worker.ts",

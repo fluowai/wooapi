@@ -33,10 +33,13 @@ type WebhookDeliveryJob = {
 function sanitizePublicError(error: any) {
   const raw = String(error?.message || error || "");
   if (!raw) return "Operacao nao concluida";
-  if (/token|secret|sqlite|database|stack|trace|bridge|internal|core|go\.mau|whatsmeow/i.test(raw)) {
-    return "Operacao nao concluida pela WooAPI";
-  }
-  return raw.slice(0, 240);
+  const blocked = [/token/i, /secret/i, /sqlite/i, /database/i, /stack/i, /trace/i,
+    /bridge/i, /internal/i, /core/i, /go\.mau/i, /whatsmeow/i,
+    /password/i, /api[_-]?key/i, /supabase/i, /stripe/i, /redis/i,
+    /\/etc\//, /\/proc\//, /C:\\/i, /home\//, /\/app\//, /\/data\//,
+    /jid/i, /Bearer /i];
+  for (const p of blocked) { if (p.test(raw)) return "Operacao nao concluida pela WooAPI"; }
+  return raw.slice(0, 240).replace(/[^\x20-\x7E\u00C0-\u00FF]/g, "");
 }
 
 function jsonBody(payload: any) {

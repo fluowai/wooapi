@@ -1,6 +1,6 @@
-# WooAPI Events
+# Wozapi Events
 
-Todos os eventos publicos da WooAPI usam o mesmo envelope:
+Todos os eventos publicos da Wozapi usam o mesmo envelope:
 
 ```json
 {
@@ -9,7 +9,7 @@ Todos os eventos publicos da WooAPI usam o mesmo envelope:
   "tenant_id": "tenant_123",
   "instance_id": "inst_123",
   "timestamp": "2026-05-27T14:30:00.000Z",
-  "source": "wooapi",
+  "source": "Wozapi",
   "data": {}
 }
 ```

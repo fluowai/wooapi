@@ -6,6 +6,33 @@
 
 begin;
 
+-- Automatically convert any existing boolean columns to integer to match SQLite-compatible API expectations
+DO $$
+DECLARE
+    r RECORD;
+BEGIN
+    FOR r IN
+        SELECT table_name, column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND data_type = 'boolean'
+          AND table_name IN (
+            'plans', 'accounts', 'users', 'instances', 'leads', 'agents', 'campaigns', 'campaign_recipients',
+            'quick_replies', 'lead_notes', 'lead_tags', 'lead_custom_fields', 'system_settings', 'team_members',
+            'schedules', 'llm_credentials', 'conversations', 'messages', 'whatsapp_groups', 'whatsapp_group_participants',
+            'group_moderation_rules', 'group_moderation_events', 'wooapi_events', 'instance_webhooks', 'webhook_events',
+            'webhook_delivery_logs', 'api_request_logs', 'connection_logs', 'message_logs', 'support_alerts',
+            'support_tickets', 'support_ticket_messages', 'support_ai_actions', 'integration_settings', 'integration_sessions',
+            'audit_logs', 'support_sessions', 'usage_events', 'media_files'
+          )
+    LOOP
+        EXECUTE format('ALTER TABLE %I ALTER COLUMN %I DROP DEFAULT', r.table_name, r.column_name);
+        EXECUTE format('ALTER TABLE %I ALTER COLUMN %I TYPE integer USING CASE WHEN %I = TRUE THEN 1 ELSE 0 END', r.table_name, r.column_name, r.column_name);
+        EXECUTE format('ALTER TABLE %I ALTER COLUMN %I SET DEFAULT 0', r.table_name, r.column_name);
+    END LOOP;
+END;
+$$;
+
 create extension if not exists pgcrypto;
 
 create or replace function set_updated_at()
@@ -748,61 +775,64 @@ create index if not exists idx_integration_sessions_instance on integration_sess
 create index if not exists idx_audit_logs_account on audit_logs(account_id);
 create index if not exists idx_usage_events_account on usage_events(account_id);
 
-insert into plans (
-  name,
-  description,
-  price,
-  billing_cycle,
-  instance_quota,
-  max_instances,
-  max_users,
-  max_messages,
-  max_agents,
-  max_campaigns,
-  max_leads,
-  max_client_accounts,
-  webhook_enabled,
-  websocket_enabled,
-  api_enabled,
-  chatwoot_enabled,
-  typebot_enabled,
-  n8n_enabled,
-	  support_level,
-	  features_json,
-	  api_rate_limit_per_minute,
-	  instance_rate_limit_per_minute,
-	  message_rate_limit_per_minute,
-	  is_active
-	) values
-	  ('WooAPI Starter', 'Instancias WhatsApp com API, Webhook e WebSocket.', 97, 'monthly', 2, 2, 2, 5000, 0, 0, 0, 0, 1, 1, 1, 0, 0, 1, 'standard', '["Instancias WhatsApp","API","Webhook","WebSocket"]', 60, 30, 20, 1),
-	  ('WooAPI Reseller', 'Revenda com subcontas e cotas por cliente.', 197, 'monthly', 10, 10, 5, 20000, 0, 0, 0, 10, 1, 1, 1, 1, 1, 1, 'priority', '["Revenda","Subcontas","Cotas por cliente","Webhooks"]', 120, 60, 40, 1),
-	  ('WooAPI Pro', 'Logs avancados e conectores operacionais.', 297, 'monthly', 20, 20, 10, 50000, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 'priority', '["Logs avancados","Chatwoot","Typebot","n8n"]', 180, 90, 60, 1),
-	  ('WooAPI Enterprise', 'White-label, multi-revendedor e suporte prioritario.', 697, 'monthly', 50, 50, 25, 200000, 0, 0, 0, 50, 1, 1, 1, 1, 1, 1, 'enterprise', '["White-label","Multi-revendedor","Suporte prioritario","Modulos extras"]', 300, 150, 100, 1)
-on conflict (name) do update set
-  description = excluded.description,
-  price = excluded.price,
-  billing_cycle = excluded.billing_cycle,
-  instance_quota = excluded.instance_quota,
-  max_instances = excluded.max_instances,
-  max_users = excluded.max_users,
-  max_messages = excluded.max_messages,
-  max_agents = excluded.max_agents,
-  max_campaigns = excluded.max_campaigns,
-  max_leads = excluded.max_leads,
-  max_client_accounts = excluded.max_client_accounts,
-  webhook_enabled = excluded.webhook_enabled,
-  websocket_enabled = excluded.websocket_enabled,
-  api_enabled = excluded.api_enabled,
-  chatwoot_enabled = excluded.chatwoot_enabled,
-  typebot_enabled = excluded.typebot_enabled,
-  n8n_enabled = excluded.n8n_enabled,
-  support_level = excluded.support_level,
-  features_json = excluded.features_json,
-  api_rate_limit_per_minute = excluded.api_rate_limit_per_minute,
-  instance_rate_limit_per_minute = excluded.instance_rate_limit_per_minute,
-  message_rate_limit_per_minute = excluded.message_rate_limit_per_minute,
-  is_active = excluded.is_active,
-  updated_at = current_timestamp;
+DO $$
+BEGIN
+  insert into plans (
+    name,
+    description,
+    price,
+    billing_cycle,
+    instance_quota,
+    max_instances,
+    max_users,
+    max_messages,
+    max_agents,
+    max_campaigns,
+    max_leads,
+    max_client_accounts,
+    webhook_enabled,
+    websocket_enabled,
+    api_enabled,
+    chatwoot_enabled,
+    typebot_enabled,
+    n8n_enabled,
+    support_level,
+    features_json,
+    api_rate_limit_per_minute,
+    instance_rate_limit_per_minute,
+    message_rate_limit_per_minute,
+    is_active
+  ) values
+    ('WooAPI Starter', 'Instancias WhatsApp com API, Webhook e WebSocket.', 97, 'monthly', 2, 2, 2, 5000, 0, 0, 0, 0, 1, 1, 1, 0, 0, 1, 'standard', '["Instancias WhatsApp","API","Webhook","WebSocket"]', 60, 30, 20, 1),
+    ('WooAPI Reseller', 'Revenda com subcontas e cotas por cliente.', 197, 'monthly', 10, 10, 5, 20000, 0, 0, 0, 10, 1, 1, 1, 1, 1, 1, 'priority', '["Revenda","Subcontas","Cotas por cliente","Webhooks"]', 120, 60, 40, 1),
+    ('WooAPI Pro', 'Logs avancados e conectores operacionais.', 297, 'monthly', 20, 20, 10, 50000, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 'priority', '["Logs avancados","Chatwoot","Typebot","n8n"]', 180, 90, 60, 1),
+    ('WooAPI Enterprise', 'White-label, multi-revendedor e suporte prioritario.', 697, 'monthly', 50, 50, 25, 200000, 0, 0, 0, 50, 1, 1, 1, 1, 1, 1, 'enterprise', '["White-label","Multi-revendedor","Suporte prioritario","Modulos extras"]', 300, 150, 100, 1)
+  on conflict (name) do update set
+    description = excluded.description,
+    price = excluded.price,
+    billing_cycle = excluded.billing_cycle,
+    instance_quota = excluded.instance_quota,
+    max_instances = excluded.max_instances,
+    max_users = excluded.max_users,
+    max_messages = excluded.max_messages,
+    max_agents = excluded.max_agents,
+    max_campaigns = excluded.max_campaigns,
+    max_leads = excluded.max_leads,
+    max_client_accounts = excluded.max_client_accounts,
+    webhook_enabled = excluded.webhook_enabled,
+    websocket_enabled = excluded.websocket_enabled,
+    api_enabled = excluded.api_enabled,
+    chatwoot_enabled = excluded.chatwoot_enabled,
+    typebot_enabled = excluded.typebot_enabled,
+    n8n_enabled = excluded.n8n_enabled,
+    support_level = excluded.support_level,
+    features_json = excluded.features_json,
+    api_rate_limit_per_minute = excluded.api_rate_limit_per_minute,
+    instance_rate_limit_per_minute = excluded.instance_rate_limit_per_minute,
+    message_rate_limit_per_minute = excluded.message_rate_limit_per_minute,
+    is_active = excluded.is_active,
+    updated_at = current_timestamp;
+END $$;
 
 -- Optional initial super admin.
 -- For production, edit email/password before running this block.
