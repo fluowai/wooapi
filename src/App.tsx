@@ -1023,6 +1023,7 @@ const SuperAdminPanel = ({ apiFetch, onImpersonate, onLogout, onBackToAccount, a
   const whitelabelAccounts = accounts.filter(acc => acc.account_type === 'reseller');
   const clientFinalAccounts = accounts.filter(acc => acc.account_type === 'client');
   const ownerAccounts = accounts.filter(acc => acc.account_type === 'owner');
+  const whitelabelRows = (whitelabelAccounts.length ? whitelabelAccounts : accounts).slice(0, 5);
   const serverStatus = failedWebhooks > 0 ? 'Requer Atencao' : 'Operacional';
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
 
@@ -1055,58 +1056,85 @@ const SuperAdminPanel = ({ apiFetch, onImpersonate, onLogout, onBackToAccount, a
   ] as const;
 
   const statCards = [
-    { label: 'Whitelabels', value: formatNumber(whitelabelAccounts.length), icon: Building2, tone: 'bg-emerald-600', note: `${formatNumber(clientFinalAccounts.length)} clientes finais` },
-    { label: 'Contas Ativas', value: formatNumber(activeAccounts), icon: Users, tone: 'bg-slate-900', note: `${formatNumber(totalAccounts)} contas totais` },
-    { label: 'Receita Mensal Est.', value: formatCurrency(estimatedRevenue), icon: CreditCard, tone: 'bg-primary', note: 'baseada nos planos' },
-    { label: 'Status do Servidor', value: serverStatus, icon: Server, tone: failedWebhooks > 0 ? 'bg-amber-500' : 'bg-emerald-600', note: `${formatNumber(connectedInstances)}/${formatNumber(totalInstances)} instancias online` }
+    { label: 'Whitelabels', value: formatNumber(whitelabelAccounts.length), icon: Building2, tone: 'text-red-600 bg-red-50', note: `${formatNumber(whitelabelAccounts.filter(acc => acc.status === 'active').length)} ativos` },
+    { label: 'Clientes Finais', value: formatNumber(clientFinalAccounts.length), icon: Users, tone: 'text-red-600 bg-red-50', note: `${formatNumber(activeAccounts)} contas ativas` },
+    { label: 'Instancias (Global)', value: formatNumber(totalInstances), icon: Database, tone: 'text-red-600 bg-red-50', note: `${formatNumber(connectedInstances)} conectadas` },
+    { label: 'Receita (Mes)', value: formatCurrency(estimatedRevenue), icon: CreditCard, tone: 'text-red-600 bg-red-50', note: 'baseada nos planos' },
+    { label: 'Status da Plataforma', value: serverStatus, icon: ShieldCheck, tone: 'text-red-600 bg-red-50', note: failedWebhooks > 0 ? `${formatNumber(failedWebhooks)} alertas` : 'Todos os sistemas OK' }
   ];
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className="min-h-[calc(100vh-2rem)] overflow-hidden rounded-md border border-slate-200 bg-[#f7faf8] shadow-sm lg:grid lg:grid-cols-[272px_1fr]"
+      className="min-h-[calc(100vh-2rem)] overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm lg:grid lg:grid-cols-[276px_1fr]"
     >
-      <aside className="flex flex-col bg-white text-slate-900">
-        <div className="flex h-20 items-center gap-3 border-b border-white/10 px-6">
-          <div className="flex h-11 w-11 items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 text-primary">
-            <ShieldCheck size={20} />
+      <aside className="flex flex-col bg-[#0f1b2d] text-white">
+        <div className="flex h-20 items-center gap-3 border-b border-white/10 px-4">
+          <div className="flex h-12 w-12 items-center justify-center rounded-md bg-red-600 text-white shadow-lg shadow-red-950/30">
+            <span className="text-2xl font-black">W</span>
           </div>
           <div>
-            <p className="text-lg font-black text-slate-950">Mega Super Admin</p>
-            <p className="text-[11px] font-black uppercase tracking-[0.18em] text-primary">Dono da plataforma</p>
+            <p className="text-2xl font-black leading-none text-white">Wozapi</p>
+            <p className="mt-1 text-[11px] font-black text-amber-300">Mega Super Admin</p>
           </div>
         </div>
 
-        <nav className="flex-1 space-y-1 px-4 py-5">
+        <nav className="flex-1 space-y-1 px-3 py-5">
           {navItems.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
               onClick={() => setActiveSubTab(id)}
               className={cn(
                 "flex w-full items-center gap-3 rounded-md px-3 py-3 text-left text-sm font-bold transition-all",
-                activeSubTab === id ? "border border-emerald-200 bg-emerald-50 text-slate-950 shadow-sm" : "text-slate-500 hover:bg-slate-50 hover:text-slate-950"
+                activeSubTab === id ? "bg-red-600/90 text-white shadow-lg shadow-red-950/20" : "text-slate-300 hover:bg-white/10 hover:text-white"
               )}
             >
-              <Icon size={18} className={activeSubTab === id ? "text-primary" : "text-slate-400"} />
+              <Icon size={18} className={activeSubTab === id ? "text-white" : "text-slate-400"} />
               {label}
             </button>
           ))}
         </nav>
 
-        <div className="border-t border-slate-200 p-5">
+        <div className="mx-3 mb-4 rounded-md border border-red-500/70 p-3">
+          <p className="text-sm font-bold text-white">Criar conta como:</p>
+          <div className="mt-3 grid gap-2">
+            <button
+              onClick={() => {
+                setActiveSubTab('accounts');
+                setNewAccount({ ...newAccount, account_type: 'client' });
+              }}
+              className="flex items-center gap-3 rounded-md border border-white/15 px-3 py-2 text-xs font-bold text-slate-200 hover:bg-white/10"
+            >
+              <User size={14} />
+              Cliente Final
+            </button>
+            <button
+              onClick={() => {
+                setActiveSubTab('accounts');
+                setNewAccount({ ...newAccount, account_type: 'reseller', max_client_accounts: Math.max(Number(newAccount.max_client_accounts || 0), 10) });
+              }}
+              className="flex items-center gap-3 rounded-md border border-white/15 px-3 py-2 text-xs font-bold text-slate-200 hover:bg-white/10"
+            >
+              <Building2 size={14} />
+              Whitelabel
+            </button>
+          </div>
+        </div>
+
+        <div className="border-t border-white/10 p-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-md bg-primary text-sm font-black text-white">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-600 text-sm font-black text-white">
               {displayText(authUser?.name, 'S').charAt(0).toUpperCase()}
             </div>
             <div className="min-w-0">
-              <p className="truncate text-sm font-black text-slate-950">{displayText(authUser?.name, 'Dono do Sistema')}</p>
-              <p className="truncate text-xs text-slate-500">{displayText(authUser?.email, 'mega admin')}</p>
+              <p className="truncate text-sm font-black text-white">{displayText(authUser?.name, 'Super Admin')}</p>
+              <p className="truncate text-xs text-slate-400">{displayText(authUser?.email, 'super@wozapi.com.br')}</p>
             </div>
           </div>
           <button
             onClick={onLogout}
-            className="mt-5 flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-bold text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-950"
+            className="mt-5 flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-bold text-slate-300 transition-colors hover:bg-white/10 hover:text-white"
           >
             <LogOut size={16} />
             Sair
@@ -1114,28 +1142,45 @@ const SuperAdminPanel = ({ apiFetch, onImpersonate, onLogout, onBackToAccount, a
         </div>
       </aside>
 
-      <section className="min-w-0 bg-[#f7faf8] p-5 lg:p-7">
-        <header className="mb-7 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+      <section className="min-w-0 bg-white">
+        <header className="flex min-h-24 flex-col gap-4 border-b border-slate-200 px-6 py-5 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <h2 className="text-3xl font-black tracking-tight text-slate-950">Mega Super Admin Wozapi</h2>
-            <p className="mt-1 text-base text-slate-600">Controle global de whitelabels, clientes finais, planos, instancias, subdominios e suporte.</p>
+            <h2 className="text-3xl font-black tracking-tight text-slate-950">Mega Super Admin</h2>
+            <p className="mt-2 text-base text-slate-600">Controle total da plataforma Wozapi</p>
           </div>
-          <div className={cn("flex w-fit items-center gap-2 rounded-md px-3 py-2 text-xs font-black", failedWebhooks > 0 ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700")}>
-            <span className="h-2 w-2 rounded-full bg-current" />
-            {serverStatus}
+          <div className="flex flex-wrap items-center gap-4">
+            <label className="grid gap-1 text-xs font-semibold text-slate-500">
+              Escopo atual:
+              <select className="h-11 min-w-64 rounded-md border border-slate-200 bg-white px-3 text-sm font-black text-slate-900">
+                <option>Plataforma Global</option>
+                <option>Whitelabels</option>
+                <option>Clientes Finais</option>
+              </select>
+            </label>
+            <button className="relative flex h-10 w-10 items-center justify-center rounded-md text-slate-500 hover:bg-slate-50" aria-label="Alertas">
+              <AlertCircle size={20} />
+              <span className="absolute right-2 top-2 h-2.5 w-2.5 rounded-full bg-red-600" />
+            </button>
+            <button className="flex h-10 w-10 items-center justify-center rounded-md text-slate-500 hover:bg-slate-50" aria-label="Ajuda">
+              <LifeBuoy size={20} />
+            </button>
+            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-red-600 text-sm font-black text-white">
+              {displayText(authUser?.name, 'SA').slice(0, 2).toUpperCase()}
+            </div>
           </div>
         </header>
 
-        <div className="mb-8 grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4">
+        <div className="p-6">
+        <div className="mb-6 grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-5">
           {statCards.map(({ label, value, icon: Icon, tone, note }) => (
             <Card key={label} className="p-6">
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-slate-500">{label}</p>
                   <p className="mt-2 truncate text-2xl font-black text-slate-950">{value}</p>
-                  <p className="mt-2 text-xs font-semibold text-slate-400">{note}</p>
+                  <p className="mt-2 text-xs font-bold text-emerald-700">{note}</p>
                 </div>
-                <div className={cn("flex h-12 w-12 shrink-0 items-center justify-center rounded-md text-white shadow-lg", tone)}>
+                <div className={cn("flex h-14 w-14 shrink-0 items-center justify-center rounded-full", tone)}>
                   <Icon size={23} />
                 </div>
               </div>
@@ -1144,87 +1189,199 @@ const SuperAdminPanel = ({ apiFetch, onImpersonate, onLogout, onBackToAccount, a
         </div>
 
         {activeSubTab === 'dashboard' && (
-          <div className="space-y-5">
-            <Card className="p-6">
-              <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <h3 className="text-xl font-black text-slate-950">Mapa da Plataforma</h3>
-                  <p className="text-sm text-slate-500">Hierarquia operacional: voce controla whitelabels, cada whitelabel controla os clientes finais.</p>
-                </div>
-                <button
-                  onClick={() => {
-                    setActiveSubTab('accounts');
-                    setNewAccount({ ...newAccount, account_type: 'reseller', max_client_accounts: Math.max(Number(newAccount.max_client_accounts || 0), 10) });
-                  }}
-                  className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-black text-white shadow-sm hover:bg-primary/90"
-                >
-                  <Plus size={18} />
-                  Criar whitelabel
-                </button>
-              </div>
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-                {([
-                  ['Mega Super Admin', ownerAccounts.length || 1, ShieldCheck, 'Dono do sistema'],
-                  ['Whitelabels', whitelabelAccounts.length, Building2, 'Revendedores com marca propria'],
-                  ['Clientes finais', clientFinalAccounts.length, Users, 'Contas atendidas por whitelabels'],
-                  ['Subdominios', whitelabelAccounts.length, Globe2, 'Automacao por slug/domino']
-                ] as Array<[string, number, LucideIcon, string]>).map(([label, value, Icon, note]) => (
-                  <div key={String(label)} className="rounded-md border border-slate-100 bg-slate-50 p-4">
-                    <Icon size={20} className="text-primary" />
-                    <p className="mt-3 text-xs font-black uppercase text-slate-400">{String(label)}</p>
-                    <p className="mt-1 text-2xl font-black text-slate-950">{formatNumber(value)}</p>
-                    <p className="mt-2 text-xs font-semibold text-slate-500">{String(note)}</p>
-                  </div>
-                ))}
-              </div>
-            </Card>
-
-            <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
-            <Card className="p-6">
-              <div className="mb-5 flex items-center gap-3">
-                <Activity size={20} className="text-slate-400" />
-                <h3 className="text-lg font-black text-slate-950">Atividade Recente</h3>
-              </div>
-              <div className="space-y-4">
-                {latestAccounts.length > 0 ? latestAccounts.map((acc) => (
-                  <div key={acc.id} className="flex items-center justify-between rounded-md border border-slate-100 bg-slate-50 px-4 py-3">
-                    <div>
-                      <p className="font-bold text-slate-900">{displayText(acc.name, `Conta #${acc.id}`)}</p>
-                      <p className="text-xs text-slate-500">{displayText(acc.owner_email, `Conta #${acc.id}`)}</p>
+          <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_280px]">
+            <div className="space-y-5">
+              <Card className="p-5">
+                <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-md bg-red-50 text-red-600">
+                      <BarChart3 size={20} />
                     </div>
-                    <span className={cn("rounded-md px-2 py-1 text-[11px] font-black", acc.status === 'active' ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700")}>
-                      {acc.status || 'active'}
-                    </span>
+                    <div>
+                      <h3 className="text-xl font-black text-slate-950">Hierarquia de Tenants</h3>
+                      <p className="text-sm text-slate-500">Estrutura da plataforma: Whitelabels e seus clientes</p>
+                    </div>
                   </div>
-                )) : (
-                  <p className="py-10 text-center text-sm text-slate-500">Nenhuma atividade recente registrada.</p>
-                )}
-              </div>
-            </Card>
+                  <div className="flex flex-col gap-3 md:flex-row">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                      <input className="h-11 w-full rounded-md border border-slate-200 bg-white pl-9 pr-3 text-sm font-semibold outline-none focus:border-red-500 md:w-80" placeholder="Buscar whitelabel ou cliente..." />
+                    </div>
+                    <select className="h-11 rounded-md border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700">
+                      <option>Todos os status</option>
+                      <option>Ativo</option>
+                      <option>Pendente</option>
+                      <option>Inativo</option>
+                    </select>
+                    <button
+                      onClick={() => {
+                        setActiveSubTab('accounts');
+                        setNewAccount({ ...newAccount, account_type: 'reseller', max_client_accounts: Math.max(Number(newAccount.max_client_accounts || 0), 10) });
+                      }}
+                      className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-red-600 px-4 text-sm font-black text-white shadow-sm hover:bg-red-700"
+                    >
+                      <Plus size={18} />
+                      Criar Whitelabel
+                    </button>
+                  </div>
+                </div>
 
-            <Card className="p-6">
-              <div className="mb-5 flex items-center gap-3">
-                <AlertCircle size={20} className="text-slate-400" />
-                <h3 className="text-lg font-black text-slate-950">Alertas do Sistema</h3>
-              </div>
-              <div className="space-y-4">
-                <div className="rounded-md border border-slate-100 bg-slate-50 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="font-bold text-slate-900">Webhooks falhos</p>
-                    <span className={cn("rounded-md px-2 py-1 text-xs font-black", failedWebhooks > 0 ? "bg-red-50 text-red-600" : "bg-emerald-50 text-emerald-700")}>{formatNumber(failedWebhooks)}</span>
+                <div className="rounded-md border border-slate-200">
+                  <div className="flex flex-col gap-3 border-b border-slate-100 p-4 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-md bg-red-600 text-lg font-black text-white">W</div>
+                      <div>
+                        <p className="font-black text-slate-950">Wozapi (Mega Super Admin)</p>
+                        <p className="text-xs font-bold text-slate-500">Raiz da Plataforma</p>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <span className="rounded-md bg-slate-50 px-3 py-1 text-xs font-black text-slate-700">{formatNumber(whitelabelAccounts.length)} Whitelabels</span>
+                      <span className="rounded-md bg-slate-50 px-3 py-1 text-xs font-black text-slate-700">{formatNumber(clientFinalAccounts.length)} Clientes</span>
+                      <span className="rounded-md bg-slate-50 px-3 py-1 text-xs font-black text-slate-700">{formatNumber(totalInstances)} Instancias</span>
+                    </div>
                   </div>
-                  <p className="mt-2 text-sm text-slate-500">{failedWebhooks > 0 ? 'Verifique entregas pendentes e clientes afetados.' : 'Sistema operando normalmente.'}</p>
-                </div>
-                <div className="rounded-md border border-slate-100 bg-slate-50 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="font-bold text-slate-900">Instancias conectadas</p>
-                    <span className="rounded-md bg-blue-50 px-2 py-1 text-xs font-black text-blue-700">{formatNumber(connectedInstances)}/{formatNumber(totalInstances)}</span>
+                  <div className="divide-y divide-slate-100">
+                    {whitelabelRows.slice(0, 3).map((acc, index) => (
+                      <div key={acc.id} className="grid grid-cols-1 gap-3 px-6 py-3 text-sm md:grid-cols-[1fr_auto_auto_auto_auto] md:items-center">
+                        <div className="flex items-center gap-3 pl-6">
+                          <span className="h-px w-7 bg-slate-300" />
+                          <div className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-slate-50 text-slate-700">
+                            <Building2 size={17} />
+                          </div>
+                          <div>
+                            <p className="font-black text-slate-950">{displayText(acc.name, `Whitelabel ${index + 1}`)}</p>
+                            <p className="text-xs text-slate-500">{String(acc.name || 'cliente').toLowerCase().replace(/\s+/g, '')}.wozapi.com.br</p>
+                          </div>
+                        </div>
+                        <span className="rounded-md bg-slate-50 px-3 py-1 text-xs font-black text-slate-700">{formatNumber(acc.max_client_accounts || acc.usage?.client_accounts || 0)} Clientes</span>
+                        <span className="rounded-md bg-slate-50 px-3 py-1 text-xs font-black text-slate-700">{formatNumber(acc.usage?.instances || 0)} Instancias</span>
+                        <span className="flex items-center gap-2 text-xs font-black text-emerald-700"><span className="h-2 w-2 rounded-full bg-emerald-600" /> Ativo</span>
+                        <button className="text-slate-400 hover:text-slate-900">›</button>
+                      </div>
+                    ))}
+                    <div className="px-10 py-3 text-sm font-bold text-slate-600">+ {Math.max(whitelabelAccounts.length - 3, 0)} whitelabels inativos</div>
                   </div>
-                  <p className="mt-2 text-sm text-slate-500">Acompanhe quedas de sessao e clientes sem conexao ativa.</p>
                 </div>
-              </div>
-            </Card>
+              </Card>
+
+              <Card className="overflow-hidden">
+                <div className="border-b border-slate-100 p-5">
+                  <h3 className="text-xl font-black text-slate-950">Whitelabels</h3>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[980px] text-left text-sm">
+                    <thead className="bg-slate-50 text-[11px] font-black uppercase text-slate-500">
+                      <tr>
+                        <th className="px-4 py-3">Whitelabel</th>
+                        <th className="px-4 py-3">Subdominio</th>
+                        <th className="px-4 py-3">Status</th>
+                        <th className="px-4 py-3">Clientes</th>
+                        <th className="px-4 py-3">Instancias usadas</th>
+                        <th className="px-4 py-3">Cota instancias</th>
+                        <th className="px-4 py-3">Plano</th>
+                        <th className="px-4 py-3">Acao</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {whitelabelRows.map((acc, index) => {
+                        const quota = Number(acc.max_instances || acc.instance_quota || 100);
+                        const used = Number(acc.usage?.instances || 0);
+                        const pct = quota ? Math.min(Math.round((used / quota) * 100), 100) : 0;
+                        const subdomain = `${String(acc.name || `whitelabel-${index + 1}`).toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 18) || 'cliente'}.wozapi.com.br`;
+                        return (
+                          <tr key={acc.id} className="hover:bg-slate-50/70">
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-3">
+                                <div className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-slate-50">
+                                  <Building2 size={16} />
+                                </div>
+                                <div>
+                                  <p className="font-black text-slate-950">{displayText(acc.name, `Whitelabel ${index + 1}`)}</p>
+                                  <p className="text-xs text-slate-500">{displayText(acc.owner_email, subdomain)}</p>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <p className="font-semibold text-slate-700">{subdomain}</p>
+                              <p className="text-xs font-bold text-emerald-700">DNS ativo</p>
+                            </td>
+                            <td className="px-4 py-3"><span className="text-xs font-black text-emerald-700">• Ativo</span></td>
+                            <td className="px-4 py-3 font-bold">{formatNumber(acc.max_client_accounts || 0)}</td>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-3">
+                                <span className="font-bold">{formatNumber(used)}</span>
+                                <div className="h-1.5 w-24 overflow-hidden rounded-full bg-slate-100">
+                                  <div className="h-full bg-emerald-500" style={{ width: `${pct}%` }} />
+                                </div>
+                                <span className="text-xs font-bold text-slate-500">{pct}%</span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 font-bold">{formatNumber(quota)}</td>
+                            <td className="px-4 py-3 text-slate-500">{acc.plan_name || acc.account_type || 'Pro'}</td>
+                            <td className="px-4 py-3">
+                              <button onClick={() => impersonateAccount(acc.id)} className="rounded-md border border-red-200 px-3 py-2 text-xs font-black text-red-600 hover:bg-red-50">Gerenciar</button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="border-t border-slate-100 p-4 text-center">
+                  <button onClick={() => setActiveSubTab('accounts')} className="text-sm font-black text-red-600 hover:underline">Ver todos os whitelabels →</button>
+                </div>
+              </Card>
             </div>
+
+            <aside className="space-y-4">
+              <Card className="p-5">
+                <h3 className="text-lg font-black text-slate-950">Checklist de Setup</h3>
+                <p className="text-sm text-slate-500">Configure novos whitelabels</p>
+                <div className="mt-4 space-y-3">
+                  {['Criar Whitelabel', 'Definir plano e cotas', 'Configurar subdominio', 'Configurar DNS', 'Personalizar marca', 'Criar primeiro cliente'].map((item, index) => (
+                    <div key={item} className="flex items-center gap-3 text-sm font-semibold text-slate-700">
+                      <span className={cn("flex h-5 w-5 items-center justify-center rounded-full border text-[10px] font-black", index < 4 ? "border-emerald-300 text-emerald-700" : "border-slate-300 text-slate-400")}>
+                        {index < 4 ? '✓' : index + 1}
+                      </span>
+                      {item}
+                    </div>
+                  ))}
+                </div>
+                <button className="mt-5 text-sm font-black text-red-600">Ver guia completo →</button>
+              </Card>
+
+              <Card className="p-5">
+                <h3 className="text-lg font-black text-slate-950">Acoes Rapidas</h3>
+                <div className="mt-4 space-y-2">
+                  {([
+                    { label: 'Criar Whitelabel', icon: Plus, tab: 'accounts' },
+                    { label: 'Criar Cliente Final', icon: Users, tab: 'accounts' },
+                    { label: 'Gerenciar Planos', icon: CreditCard, tab: 'plans' },
+                    { label: 'Ver Relatorios', icon: BarChart3, tab: 'monitor' },
+                    { label: 'Configuracoes Globais', icon: Settings, tab: 'settings' }
+                  ] as Array<{ label: string; icon: LucideIcon; tab: 'accounts' | 'plans' | 'monitor' | 'settings' }>).map(({ label, icon: Icon, tab }) => (
+                    <button key={label} onClick={() => setActiveSubTab(tab)} className="flex w-full items-center justify-between rounded-md border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-bold text-slate-700 hover:bg-white">
+                      <span className="flex items-center gap-2"><Icon size={16} />{label}</span>
+                      <span>{'>'}</span>
+                    </button>
+                  ))}
+                </div>
+              </Card>
+
+              <Card className="p-5">
+                <h3 className="text-lg font-black text-slate-950">Atividades Recentes</h3>
+                <div className="mt-4 space-y-4">
+                  {latestAccounts.slice(0, 3).map((acc, index) => (
+                    <div key={acc.id} className="border-l border-slate-200 pl-3">
+                      <p className="text-xs font-bold text-slate-700">{index === 0 ? 'Novo whitelabel criado' : 'Cliente criado'}: {displayText(acc.name)}</p>
+                      <p className="mt-1 text-xs text-slate-400">ha {index + 2} horas</p>
+                    </div>
+                  ))}
+                </div>
+                <button className="mt-5 text-sm font-black text-red-600">Ver todas atividades →</button>
+              </Card>
+            </aside>
           </div>
         )}
 
@@ -2185,6 +2342,7 @@ const SuperAdminPanel = ({ apiFetch, onImpersonate, onLogout, onBackToAccount, a
             ))}
           </div>
         )}
+        </div>
       </section>
     </motion.div>
   );
