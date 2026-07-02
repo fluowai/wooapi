@@ -1065,6 +1065,8 @@ async function migrate() {
       CREATE INDEX IF NOT EXISTS idx_partner_referrals_partner ON partner_referrals(partner_id);
       CREATE INDEX IF NOT EXISTS idx_partner_referrals_account ON partner_referrals(account_id);
       CREATE INDEX IF NOT EXISTS idx_partner_commissions_partner ON partner_commissions(partner_id);
+      ALTER TABLE instances ADD COLUMN IF NOT EXISTS passkey_json TEXT;
+      ALTER TABLE instances ADD COLUMN IF NOT EXISTS passkey_requested_at TIMESTAMP;
     `);
     return;
   }
@@ -5638,6 +5640,14 @@ async function startServer() {
   uazBridgePost("/group/join", "/groups/join");
   uazBridgePost("/group/leave", "/groups/leave");
   uazBridgePost("/group/settings", "/groups/settings");
+  uazBridgePost("/send/sticker", "/send-sticker");
+  uazBridgePost("/send/poll", "/send-poll");
+  uazBridgePost("/send/broadcast", "/send-broadcast");
+  uazBridgePost("/message/poll-vote", "/messages/poll-vote");
+  uazBridgePost("/label/edit", "/labels/edit");
+  uazBridgePost("/label/chat", "/labels/chat");
+  uazBridgePost("/label/message", "/labels/message");
+  uazBridgePost("/chat/disappearing", "/chats/disappearing");
 
   app.get("/profile", async (req, res) => {
     const inst = await requireUazInstance(req, res);
@@ -6394,6 +6404,14 @@ const session = await requireV1Account(req, res);
   v1BridgePost("/api/v1/instances/:id/groups/join", "/groups/join");
   v1BridgePost("/api/v1/instances/:id/groups/leave", "/groups/leave");
   v1BridgePost("/api/v1/instances/:id/groups/settings", "/groups/settings");
+  v1BridgePost("/api/v1/instances/:id/send-sticker", "/send-sticker");
+  v1BridgePost("/api/v1/instances/:id/send-poll", "/send-poll");
+  v1BridgePost("/api/v1/instances/:id/send-broadcast", "/send-broadcast");
+  v1BridgePost("/api/v1/instances/:id/messages/poll-vote", "/messages/poll-vote");
+  v1BridgePost("/api/v1/instances/:id/labels/edit", "/labels/edit");
+  v1BridgePost("/api/v1/instances/:id/labels/chat", "/labels/chat");
+  v1BridgePost("/api/v1/instances/:id/labels/message", "/labels/message");
+  v1BridgePost("/api/v1/instances/:id/chats/disappearing", "/chats/disappearing");
 
   app.get("/api/v1/instances/:id/profile", async (req, res) => {
     const inst = await requireInstanceApiKey(req, res);

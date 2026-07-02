@@ -245,6 +245,29 @@ func (b *Bridge) eventHandler(instanceId int, accountId int, evt interface{}) {
 		delete(b.lastQR, instanceId)
 		b.mu.Unlock()
 		b.sendToNode("status", instanceId, accountId, map[string]string{"status": "none"})
+	case *events.LabelEdit:
+		b.sendToNode("label_edit", instanceId, accountId, map[string]interface{}{
+			"labelId":   v.LabelID,
+			"labelName": v.Action.GetName(),
+			"labelColor": v.Action.GetColor(),
+			"deleted":   v.Action.GetDeleted(),
+			"timestamp": v.Timestamp,
+		})
+	case *events.LabelAssociationChat:
+		b.sendToNode("label_association_chat", instanceId, accountId, map[string]interface{}{
+			"jid":       v.JID.String(),
+			"labelId":   v.LabelID,
+			"labeled":   v.Action.GetLabeled(),
+			"timestamp": v.Timestamp,
+		})
+	case *events.LabelAssociationMessage:
+		b.sendToNode("label_association_message", instanceId, accountId, map[string]interface{}{
+			"jid":       v.JID.String(),
+			"labelId":   v.LabelID,
+			"messageId": v.MessageID,
+			"labeled":   v.Action.GetLabeled(),
+			"timestamp": v.Timestamp,
+		})
 	}
 }
 
@@ -1658,6 +1681,7 @@ func main() {
 	r.HandleFunc("/instances/{id}/send-media", bridge.handleSendMedia).Methods("POST")
 	r.HandleFunc("/instances/{id}/diagnostics/restriction", bridge.handleDiagnosticsRestriction).Methods("GET")
 	bridge.registerAdvancedRoutes(r)
+	bridge.registerNewFeatureRoutes(r)
 	r.HandleFunc("/instances/{id}/logout", bridge.handleLogout).Methods("POST")
 
 	fmt.Println("WooAPI Core running on :3001")
