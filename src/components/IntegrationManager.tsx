@@ -236,9 +236,7 @@ export default function IntegrationManager({ apiFetch }: IntegrationManagerProps
   const instanceApiUrl = selectedInstance ? `${publicBaseUrl}/api/v1/instances/${selectedInstance.id}` : `${publicBaseUrl}/api/v1/instances/ID`;
   const chatwootWebhookUrl = selectedInstance ? `${publicBaseUrl}/api/v1/integrations/chatwoot/${selectedInstance.id}/webhook` : `${publicBaseUrl}/api/v1/integrations/chatwoot/ID/webhook`;
 
-  const instanceApiOptions = () => ({
-    headers: selectedInstance?.api_key ? { 'x-api-key': selectedInstance.api_key } : {}
-  });
+  const instanceApiOptions = () => ({});
 
   const activeWebhook = useMemo(() => {
     return webhooks.find(hook => {
@@ -279,7 +277,7 @@ export default function IntegrationManager({ apiFetch }: IntegrationManagerProps
     if (!selectedInstanceId) return;
     setLoading(true);
     try {
-      const result = await apiFetch(`/api/v1/instances/${selectedInstanceId}/integrations`, instanceApiOptions());
+      const result = await apiFetch(`/api/whatsapp/instances/${selectedInstanceId}/integrations`, instanceApiOptions());
       const rows = Array.isArray(result) ? result : [];
       const map: Record<string, IntegrationData> = {};
       const editMap: Record<ProviderId, Record<string, string>> = { ...DEFAULT_FORM };
@@ -315,7 +313,7 @@ export default function IntegrationManager({ apiFetch }: IntegrationManagerProps
   const fetchWebhooks = async () => {
     if (!selectedInstanceId) return;
     try {
-      const result = await apiFetch(`/api/v1/instances/${selectedInstanceId}/webhooks`, instanceApiOptions());
+      const result = await apiFetch(`/api/whatsapp/instances/${selectedInstanceId}/webhooks`, instanceApiOptions());
       setWebhooks(Array.isArray(result) ? result : []);
     } catch {
       setWebhooks([]);
@@ -364,19 +362,11 @@ export default function IntegrationManager({ apiFetch }: IntegrationManagerProps
     setSaving(provider);
     setMessage(null);
     try {
-      if (provider === 'chatwoot') {
-        await apiFetch('/chatwoot/config', {
-          ...instanceApiOptions(),
-          method: 'PUT',
-          body: JSON.stringify({ ...config, enabled: true })
-        });
-      } else {
-        await apiFetch(`/api/v1/instances/${selectedInstanceId}/integrations/${provider}`, {
-          ...instanceApiOptions(),
-          method: 'PUT',
-          body: JSON.stringify({ enabled: true, config })
-        });
-      }
+      await apiFetch(`/api/whatsapp/instances/${selectedInstanceId}/integrations/${provider}`, {
+        ...instanceApiOptions(),
+        method: 'PUT',
+        body: JSON.stringify({ enabled: true, config })
+      });
       setMessage({ type: 'success', text: `${definition?.name || provider} salvo e ativado.` });
       await fetchIntegrations();
       await fetchWebhooks();
@@ -391,7 +381,7 @@ export default function IntegrationManager({ apiFetch }: IntegrationManagerProps
     setMessage(null);
     try {
       const config = provider === activeProvider ? buildConfig(provider) : parseConfig(integrations[provider]?.config_json);
-      await apiFetch(`/api/v1/instances/${selectedInstanceId}/integrations/${provider}`, {
+      await apiFetch(`/api/whatsapp/instances/${selectedInstanceId}/integrations/${provider}`, {
         ...instanceApiOptions(),
         method: 'PUT',
         body: JSON.stringify({ enabled, config })
@@ -416,7 +406,7 @@ export default function IntegrationManager({ apiFetch }: IntegrationManagerProps
     setCreatingWebhook(provider);
     setMessage(null);
     try {
-      await apiFetch(`/api/v1/instances/${selectedInstanceId}/webhooks`, {
+      await apiFetch(`/api/whatsapp/instances/${selectedInstanceId}/webhooks`, {
         ...instanceApiOptions(),
         method: 'POST',
         body: JSON.stringify({

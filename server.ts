@@ -5052,6 +5052,62 @@ async function startServer() {
     res.json({ success: true, ...result });
   });
 
+  app.get("/api/whatsapp/instances/:id/integrations", async (req: AccountRequest, res) => {
+    const inst = await getAccountScopedInstance(req, req.params.id, "id, account_id");
+    if (!inst) return res.status(404).json({ error: "Instancia nao encontrada" });
+    const rows = await query(
+      "SELECT provider, enabled, config_json, updated_at FROM integration_settings WHERE instance_id = ? ORDER BY provider ASC",
+      [inst.id]
+    );
+    res.json(rows);
+  });
+
+  app.put("/api/whatsapp/instances/:id/integrations/:provider", async (req: AccountRequest, res) => {
+    const inst = await getAccountScopedInstance(req, req.params.id, "id, account_id");
+    if (!inst) return res.status(404).json({ error: "Instancia nao encontrada" });
+    const provider = String(req.params.provider || "").toLowerCase();
+    if (!["n8n", "typebot", "chatwoot"].includes(provider)) return res.status(400).json({ error: "Provider invalido" });
+    const flags = await getAccountFeatureFlags(Number(inst.account_id));
+    if ((provider === "n8n" && !flags.n8n) || (provider === "typebot" && !flags.typebot) || (provider === "chatwoot" && !flags.chatwoot)) {
+      return res.status(403).json({ error: "Integracao nao habilitada para esta conta" });
+    }
+    const enabled = req.body?.enabled ? 1 : 0;
+    const config = req.body?.config || {};
+    await run(
+      "INSERT INTO integration_settings (account_id, instance_id, provider, enabled, config_json) VALUES (?, ?, ?, ?, ?) ON CONFLICT(instance_id, provider) DO UPDATE SET enabled = excluded.enabled, config_json = excluded.config_json, updated_at = CURRENT_TIMESTAMP",
+      [inst.account_id, inst.id, provider, enabled, JSON.stringify(config)]
+    );
+
+    let webhookUrl: string | null = null;
+    if (provider === "chatwoot" && enabled) {
+      webhookUrl = `${APP_URL}/api/v1/integrations/chatwoot/${inst.id}/webhook`;
+      try {
+        const cwUrl = String(config.apiUrl || "https://app.chatwoot.com").replace(/\/$/, "");
+        const cwToken = String(config.apiToken || "");
+        const cwAccountId = Number(config.accountId || 0);
+        const cwInboxId = Number(config.inboxId || 0);
+        if (cwToken && cwAccountId && cwInboxId) {
+          const existingWebhooks = await fetch(`${cwUrl}/api/v1/accounts/${cwAccountId}/inboxes/${cwInboxId}/webhooks`, {
+            method: "GET",
+            headers: { "Content-Type": "application/json", api_access_token: cwToken }
+          }).then(r => r.json()).catch(() => ({}));
+          const webhooks = existingWebhooks?.payload || existingWebhooks?.data || [];
+          const alreadyRegistered = Array.isArray(webhooks) && webhooks.some((w: any) => w.url === webhookUrl);
+          if (!alreadyRegistered) {
+            await fetch(`${cwUrl}/api/v1/accounts/${cwAccountId}/inboxes/${cwInboxId}/webhooks`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", api_access_token: cwToken },
+              body: JSON.stringify({ url: webhookUrl, subscriptions: ["message_created", "message_updated"] })
+            });
+          }
+        }
+      } catch (error) {
+        console.warn("[CHATWOOT_WEBHOOK_REGISTRATION_FAILED]", sanitizePublicError(error));
+      }
+    }
+    res.json({ success: true, provider, enabled: Boolean(enabled), webhook: webhookUrl });
+  });
+
   app.get("/api/whatsapp/instances/:id/webhook-logs", async (req: AccountRequest, res) => {
     const inst = await getAccountScopedInstance(req, req.params.id, "id, account_id");
     if (!inst) return res.json([]);
