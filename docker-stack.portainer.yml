@@ -122,7 +122,7 @@ services:
       WAHA_DASHBOARD_PASSWORD: "${WOZAPI_V2_DASHBOARD_PASSWORD:-change-this-dashboard-password}"
       WAHA_PRINT_QR: "False"
       WAHA_MEDIA_STORAGE: LOCAL
-      WHATSAPP_DEFAULT_ENGINE: "${WOZAPI_V2_DEFAULT_ENGINE:-NOWEB}"
+      WHATSAPP_DEFAULT_ENGINE: "${WOZAPI_V2_DEFAULT_ENGINE:-WEBJS}"
     volumes:
       - wozapi_v2_sessions:/app/.sessions
       - wozapi_v2_media:/app/.media

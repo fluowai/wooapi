@@ -118,20 +118,28 @@ async function sendToNode(event: string, instanceId: number, accountId: number, 
   }).catch(() => null);
 }
 
-async function ensureSession(instanceId: number, accountId: number, start = false) {
+async function ensureSession(instanceId: number, accountId: number, start = false, reset = false) {
   await ensureUpstreamReady();
   const name = sessionName(instanceId);
   sessions.set(name, { instanceId, accountId });
 
   const config: any = {
     client: { deviceName: DEVICE_NAME, browserName: BROWSER_NAME },
-    metadata: { instanceId: String(instanceId), accountId: String(accountId || "") }
+    metadata: { instanceId: String(instanceId), accountId: String(accountId || "") },
+    noweb: { store: { enabled: true, fullSync: false }, markOnline: true }
   };
   if (WEBHOOK_URL) {
     config.webhooks = [{
       url: WEBHOOK_URL,
       events: ["session.status", "message", "message.any", "message.ack", "message.reaction"]
     }];
+  }
+
+  if (reset) {
+    await upstream(`/api/sessions/${encodeURIComponent(name)}/logout`, { method: "POST" }).catch(() => null);
+    await upstream(`/api/sessions/${encodeURIComponent(name)}`, { method: "DELETE" }).catch(() => null);
+    lastQR.delete(instanceId);
+    lastStatus.delete(instanceId);
   }
 
   try {
@@ -196,8 +204,9 @@ app.post("/instances/:id/connect", async (req, res) => {
   if (!requireAuth(req, res)) return;
   const instanceId = Number(req.params.id);
   const accountId = Number(req.body?.account_id || req.query.account_id || 0);
+  const forceNewQr = Boolean(req.body?.force_new_qr || req.body?.forceNewQr || req.query.force_new_qr || req.query.forceNewQr);
   try {
-    const name = await ensureSession(instanceId, accountId, true);
+    const name = await ensureSession(instanceId, accountId, true, forceNewQr);
     let payload = await readStatus(instanceId, accountId);
     if (payload.status !== "open") {
       const qr = await upstream(`/api/${encodeURIComponent(name)}/auth/qr?format=raw`, { method: "GET" }).catch(() => null);
