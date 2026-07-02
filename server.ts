@@ -5067,10 +5067,6 @@ async function startServer() {
     if (!inst) return res.status(404).json({ error: "Instancia nao encontrada" });
     const provider = String(req.params.provider || "").toLowerCase();
     if (!["n8n", "typebot", "chatwoot"].includes(provider)) return res.status(400).json({ error: "Provider invalido" });
-    const flags = await getAccountFeatureFlags(Number(inst.account_id));
-    if ((provider === "n8n" && !flags.n8n) || (provider === "typebot" && !flags.typebot) || (provider === "chatwoot" && !flags.chatwoot)) {
-      return res.status(403).json({ error: "Integracao nao habilitada para esta conta" });
-    }
     const enabled = req.body?.enabled ? 1 : 0;
     const config = req.body?.config || {};
     await run(
