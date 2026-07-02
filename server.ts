@@ -4763,11 +4763,10 @@ async function startServer() {
   app.get("/api/whatsapp/instances", async (req: AccountRequest, res) => {
     const rows = await query("SELECT * FROM instances WHERE account_id = ? AND deleted_at IS NULL ORDER BY id DESC", [req.accountId]);
     const instances = await Promise.all(rows.map(async (row) => {
-      const inst = await syncInstanceStatusFromBridge(row);
       return {
-      ...serializeInstance(inst),
-      api_key: inst.api_key,
-      qr: await qrToImage(inst.qr)
+        ...serializeInstance(row),
+        api_key: row.api_key,
+        qr: await qrToImage(row.qr)
       };
     }));
     res.json(instances);

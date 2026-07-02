@@ -2375,15 +2375,19 @@ export default function App() {
     if (data) setSchedules(data);
   };
 
-  const fetchInstances = async () => {
+  const fetchInstances = async (options: { allowEmpty?: boolean } = {}) => {
     const data = await apiFetch('/api/whatsapp/instances');
-    if (data) {
-      setInstances(data);
-      const hasSelectedInstance = data.some((inst: any) => Number(inst.id) === Number(selectedWooInstanceId));
-      if (data.length > 0 && (!selectedWooInstanceId || !hasSelectedInstance)) {
-        setSelectedWooInstanceId(data[0].id);
+    if (Array.isArray(data)) {
+      if (data.length === 0 && instances.length > 0 && !options.allowEmpty) {
+        return;
       }
-      if (data.length === 0 && selectedWooInstanceId) {
+      const nextInstances = data as Instance[];
+      setInstances(nextInstances);
+      const hasSelectedInstance = nextInstances.some((inst: any) => Number(inst.id) === Number(selectedWooInstanceId));
+      if (nextInstances.length > 0 && (!selectedWooInstanceId || !hasSelectedInstance)) {
+        setSelectedWooInstanceId(nextInstances[0].id);
+      }
+      if (nextInstances.length === 0 && selectedWooInstanceId) {
         setSelectedWooInstanceId(null);
         setInstanceWebhooks([]);
         setWebhookLogs([]);
@@ -3098,7 +3102,14 @@ export default function App() {
 
   const deleteInstance = async (id: number) => {
     await apiFetch(`/api/whatsapp/instances/${id}`, { method: 'DELETE' });
-    fetchInstances();
+    setInstances(prev => prev.filter(inst => Number(inst.id) !== Number(id)));
+    if (Number(selectedWooInstanceId) === Number(id)) {
+      setSelectedWooInstanceId(null);
+      setInstanceWebhooks([]);
+      setWebhookLogs([]);
+      setWebhookEvents([]);
+    }
+    fetchInstances({ allowEmpty: true });
     if (canUseResellerPanel()) fetchResellerOverview();
   };
 
