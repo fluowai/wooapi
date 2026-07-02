@@ -42,7 +42,7 @@ COPY --from=go-builder /app/go-bridge/bridge ./go-bridge/bridge
 RUN mkdir -p /data/uploads
 VOLUME ["/data"]
 EXPOSE 3000
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD node -e "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD node -e "Promise.all([fetch('http://127.0.0.1:3000/health'),fetch('http://127.0.0.1:3003/health')]).then(([app,v2])=>process.exit(app.ok&&v2.ok?0:1)).catch(()=>process.exit(1))"
 
 ENTRYPOINT ["/sbin/tini", "--"]
-CMD ["sh", "-c", "./go-bridge/bridge & npm run engine:v2 & npm run start"]
+CMD ["sh", "-c", "./go-bridge/bridge & p1=$!; npm run engine:v2 & p2=$!; npm run start & p3=$!; trap 'kill $p1 $p2 $p3 2>/dev/null' TERM INT; while kill -0 $p1 2>/dev/null && kill -0 $p2 2>/dev/null && kill -0 $p3 2>/dev/null; do sleep 2; done; kill $p1 $p2 $p3 2>/dev/null; exit 1"]

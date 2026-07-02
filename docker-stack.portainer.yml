@@ -154,7 +154,7 @@ services:
       - woopanel1
       - wooapi_internal
     healthcheck:
-      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      test: ["CMD-SHELL", "node -e \"Promise.all([fetch('http://127.0.0.1:3000/health'),fetch('http://127.0.0.1:3003/health')]).then(([app,v2])=>process.exit(app.ok&&v2.ok?0:1)).catch(()=>process.exit(1))\""]
       interval: 30s
       timeout: 5s
       retries: 3
