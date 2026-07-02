@@ -11,9 +11,11 @@ x-wooapi-env: &wooapi_env
   APP_URL: "https://painel.wozapi.com.br"
   PANEL_URL: "https://painel.wozapi.com.br"
   PUBLIC_URL: "https://wozapi.com.br"
-  CONSULTIO_URL: "https://wozapi.consultio.com.br"
-  CORS_ORIGIN: "https://painel.wozapi.com.br,https://wozapi.com.br,https://wozapi.consultio.com.br"
-  ALLOWED_ORIGINS: "https://painel.wozapi.com.br,https://wozapi.com.br,https://wozapi.consultio.com.br"
+  DOCS_URL: "https://docs.wozapi.com.br"
+  SUPPORT_URL: "https://suporte.wozapi.com.br"
+  WEBHOOK_PUBLIC_URL: "https://webhook.wozapi.com.br"
+  CORS_ORIGIN: "https://painel.wozapi.com.br,https://wozapi.com.br,https://docs.wozapi.com.br,https://suporte.wozapi.com.br,https://webhook.wozapi.com.br"
+  ALLOWED_ORIGINS: "https://painel.wozapi.com.br,https://wozapi.com.br,https://docs.wozapi.com.br,https://suporte.wozapi.com.br,https://webhook.wozapi.com.br"
   SESSION_TOKEN_TTL_HOURS: "${SESSION_TOKEN_TTL_HOURS:-12}"
   MAX_UPLOAD_SIZE_MB: "${MAX_UPLOAD_SIZE_MB:-25}"
   DATA_DIR: /data
@@ -164,7 +166,7 @@ services:
       labels:
         - "traefik.enable=true"
         - "traefik.docker.network=woopanel1"
-        - "traefik.http.routers.wooapi.rule=Host(`painel.wozapi.com.br`) || Host(`wozapi.com.br`) || Host(`wozapi.consultio.com.br`)"
+        - "traefik.http.routers.wooapi.rule=Host(`painel.wozapi.com.br`) || Host(`wozapi.com.br`) || Host(`docs.wozapi.com.br`) || Host(`suporte.wozapi.com.br`) || Host(`webhook.wozapi.com.br`)"
         - "traefik.http.routers.wooapi.entrypoints=websecure"
         - "traefik.http.routers.wooapi.tls.certresolver=letsencryptresolver"
         - "traefik.http.routers.wooapi.priority=1"
