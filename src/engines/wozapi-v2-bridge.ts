@@ -22,6 +22,10 @@ let upstreamValidatedAt = 0;
 const app = express();
 app.use(express.json({ limit: "50mb" }));
 
+function sleep(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 function sessionName(instanceId: number | string) {
   return `${SESSION_PREFIX}_${String(instanceId).replace(/[^a-zA-Z0-9_-]/g, "_")}`;
 }
@@ -183,6 +187,22 @@ async function readStatus(instanceId: number, accountId: number) {
   return payload;
 }
 
+async function readQR(name: string) {
+  const qr = await upstream(`/api/${encodeURIComponent(name)}/auth/qr?format=raw`, { method: "GET" }).catch(() => null);
+  return typeof qr === "string" ? qr : (qr?.value || qr?.qr || qr?.code || qr?.data || "");
+}
+
+async function waitForQR(instanceId: number, accountId: number, name: string) {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const code = await readQR(name);
+    if (code) return code;
+    const payload = await readStatus(instanceId, accountId).catch(() => null);
+    if (payload?.status === "open") return "";
+    await sleep(1000);
+  }
+  return "";
+}
+
 async function sendTextMessage(instanceId: number, accountId: number, jid: string, text: string) {
   const name = await ensureSession(instanceId, accountId, false);
   const result = await upstream("/api/sendText", {
@@ -209,8 +229,7 @@ app.post("/instances/:id/connect", async (req, res) => {
     const name = await ensureSession(instanceId, accountId, true, forceNewQr);
     let payload = await readStatus(instanceId, accountId);
     if (payload.status !== "open") {
-      const qr = await upstream(`/api/${encodeURIComponent(name)}/auth/qr?format=raw`, { method: "GET" }).catch(() => null);
-      const code = typeof qr === "string" ? qr : (qr?.value || qr?.qr || qr?.code || qr?.data || "");
+      const code = await waitForQR(instanceId, accountId, name);
       if (code) {
         lastQR.set(instanceId, code);
         payload = { ...payload, status: "qr", qr: code };

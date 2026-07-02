@@ -2090,14 +2090,23 @@ async function startServer() {
 
   async function bridgeFetch(pathname: string, options: RequestInit = {}) {
     const baseURL = await bridgeURLForPath(pathname);
-    const response = await fetch(`${baseURL}${pathname}`, {
-      ...options,
-      headers: {
-        "Content-Type": "application/json",
-        "X-Bridge-Token": BRIDGE_TOKEN,
-        ...(options.headers || {})
-      }
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${baseURL}${pathname}`, {
+        ...options,
+        headers: {
+          "Content-Type": "application/json",
+          "X-Bridge-Token": BRIDGE_TOKEN,
+          ...(options.headers || {})
+        }
+      });
+    } catch (error: any) {
+      const isV2 = baseURL === WOZAPI_V2_BRIDGE_URL;
+      const message = isV2
+        ? `Wozapi 2.0 bridge offline em ${baseURL}. Verifique se o container wooapi esta com engine:v2 rodando e se wozapi-v2-core esta saudavel. Detalhe: ${error?.message || error}`
+        : `Wozapi bridge offline em ${baseURL}. Verifique se o bridge esta rodando. Detalhe: ${error?.message || error}`;
+      throw new Error(message);
+    }
     const text = await response.text();
     let data: any = {};
     try { data = text ? JSON.parse(text) : {}; } catch { data = { error: text }; }
@@ -4812,7 +4821,7 @@ async function startServer() {
         ["disconnected", "disconnected", req.params.id, req.accountId]
       ).catch(() => null);
       const rawMessage = String((error as any)?.message || error || "");
-      const publicMessage = /Wozapi 2\.0 upstream|WAHA|WOZAPI_V2_UPSTREAM_URL/i.test(rawMessage)
+      const publicMessage = /Wozapi 2\.0|Wozapi bridge|WAHA|WOZAPI_V2_UPSTREAM_URL/i.test(rawMessage)
         ? rawMessage.slice(0, 500)
         : sanitizePublicError(error);
       res.status(502).json({ error: publicMessage });
