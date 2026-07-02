@@ -45,7 +45,8 @@ import {
   Puzzle,
   Loader2,
   Menu,
-  Download
+  Download,
+  type LucideIcon
 } from 'lucide-react';
 import InstanceTester from './components/InstanceTester';
 import IntegrationManager from './components/IntegrationManager';
@@ -3789,9 +3790,16 @@ export default function App() {
     const choice = await installPrompt.userChoice?.catch(() => null);
     if (!choice || choice.outcome === 'accepted') setInstallPrompt(null);
   };
+  const connectedInstancesCount = instances.filter(i => isConnectedStatus(i.status)).length;
+  const pendingQrInstancesCount = instances.filter(i => isQrStatus(i.status)).length;
+  const disconnectedInstancesCount = instances.filter(i => isDisconnectedStatus(i.status)).length;
+  const instanceQuota = displayText(resellerOverview?.plan?.max_instances, displayText(auth.account?.instance_quota, '999'));
+  const usedInstanceQuota = displayNumber(resellerOverview?.usage?.instances, instances.length);
+  const availableInstances = displayText(resellerOverview?.available_instances, String(Math.max(Number(instanceQuota) - usedInstanceQuota, 0)));
+  const accountInitial = displayText(auth.user.name, 'U').charAt(0).toUpperCase();
 
   return (
-    <div className="flex h-dvh overflow-hidden bg-main-bg font-sans text-slate-900">
+    <div className="flex h-dvh overflow-hidden bg-[#f7faf8] font-sans text-slate-900">
       {mobileSidebarOpen && (
         <button
           type="button"
@@ -3802,16 +3810,16 @@ export default function App() {
       )}
       {/* Sidebar */}
       <aside className={cn(
-        "fixed inset-y-0 left-0 z-40 w-[min(82vw,18rem)] bg-white border-r border-slate-200 p-5 flex flex-col gap-6 shadow-2xl shadow-slate-900/10 transition-transform duration-200 lg:static lg:z-auto lg:w-64 lg:translate-x-0 lg:p-6 lg:gap-8 lg:shadow-none",
+        "fixed inset-y-0 left-0 z-40 flex w-[min(82vw,15.5rem)] flex-col gap-6 border-r border-slate-200 bg-white p-4 shadow-2xl shadow-slate-900/10 transition-transform duration-200 lg:static lg:z-auto lg:w-[248px] lg:translate-x-0 lg:shadow-none",
         mobileSidebarOpen ? "translate-x-0" : "-translate-x-full"
       )}>
-        <div className="flex items-center gap-3 px-2">
-          <div className="flex h-11 w-11 items-center justify-center rounded-md border border-primary/20 bg-primary/10">
+        <div className="flex items-center gap-3 px-2 pt-1">
+          <div className="flex h-11 w-11 items-center justify-center rounded-md border border-emerald-200 bg-emerald-50">
             <img src="/wozapi-logo.png" alt="Wozapi" className="h-8 object-contain" />
           </div>
           <div>
-            <h1 className="text-xl font-black tracking-tight text-slate-950">Wozapi</h1>
-            <p className="text-[10px] font-black uppercase tracking-widest text-primary">Painel SaaS</p>
+            <h1 className="text-xl font-black leading-none tracking-tight text-slate-950">Wozapi</h1>
+            <p className="mt-1 text-[10px] font-black uppercase tracking-[0.18em] text-primary">Painel SaaS</p>
           </div>
           <button
             type="button"
@@ -3823,14 +3831,14 @@ export default function App() {
           </button>
         </div>
 
-        <nav className="flex flex-col gap-2 overflow-y-auto pr-1">
+        <nav className="flex flex-col gap-1 overflow-y-auto pr-1">
           <SidebarItem icon={LayoutDashboard} label="Dashboard" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} href="#dashboard" />
           <SidebarItem icon={QrCode} label="Instâncias API" active={activeTab === 'whatsapp'} onClick={() => setActiveTab('whatsapp')} href="#whatsapp" />
           <SidebarItem icon={Activity} label="Saúde da Plataforma" active={activeTab === 'wooapi_monitor'} onClick={() => setActiveTab('wooapi_monitor')} href="#wooapi_monitor" />
           <SidebarItem icon={Building2} label="Clientes SaaS" active={activeTab === 'clients'} onClick={() => setActiveTab('clients')} href="#clients" />
           <SidebarItem icon={MessagesSquare} label="Mensagens" active={activeTab === 'messages'} onClick={() => setActiveTab('messages')} href="#messages" />
           <SidebarItem icon={Users} label="Grupos" active={activeTab === 'groups'} onClick={() => setActiveTab('groups')} href="#groups" />
-          <SidebarItem icon={MessageSquare} label="Integrações" active={activeTab === 'api_docs'} onClick={() => setActiveTab('api_docs')} href="#api_docs" />
+          <SidebarItem icon={Webhook} label="Integrações" active={activeTab === 'api_docs'} onClick={() => setActiveTab('api_docs')} href="#api_docs" />
           <SidebarItem icon={Puzzle} label="Conectores" active={activeTab === 'integrations'} onClick={() => setActiveTab('integrations')} href="#integrations" />
           <SidebarItem icon={LifeBuoy} label="Suporte" active={activeTab === 'support'} onClick={() => setActiveTab('support')} href="#support" />
           <SidebarItem icon={Settings} label="Configurações" active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} href="#settings" />
@@ -3844,8 +3852,8 @@ export default function App() {
             "p-4 rounded-md border flex items-center gap-3",
             isConnectedStatus(wsStatus.status) ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-slate-50 text-slate-600"
           )}>
-            <div className="w-2 h-2 rounded-full bg-primary" />
-            <span className="text-xs font-semibold uppercase tracking-wider">
+            <div className={cn("h-2 w-2 rounded-full", isConnectedStatus(wsStatus.status) ? "bg-primary" : "bg-slate-400")} />
+            <span className="text-xs font-black uppercase tracking-wide">
               {isConnectedStatus(wsStatus.status) ? 'WhatsApp Conectado' : 'WhatsApp Desconectado'}
             </span>
           </div>
@@ -3862,8 +3870,8 @@ export default function App() {
           )}
 
           <div className="flex items-center gap-3 rounded-md bg-slate-50 px-4 py-3">
-            <div className="w-8 h-8 bg-primary text-white rounded-md flex items-center justify-center font-bold text-xs">
-              {displayText(auth.user.name, 'U').charAt(0)}
+            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-xs font-black text-white">
+              {accountInitial}
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-xs font-bold text-slate-950 truncate">{displayText(auth.user.name, 'Usuario')}</p>
@@ -3950,6 +3958,126 @@ export default function App() {
         )}
         <AnimatePresence mode="wait">
           {activeTab === 'dashboard' && (
+            <motion.div
+              key="dashboard-v2"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="space-y-8"
+            >
+              <header>
+                <h2 className="text-3xl font-black tracking-tight text-slate-950">Painel da Conta Wozapi</h2>
+                <p className="mt-1 text-base text-slate-600">Operacao da sua conta: instancias, mensagens, clientes, integracoes e configuracoes.</p>
+              </header>
+
+              <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+                <Card className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-600">Instancias</p>
+                      <h3 className="mt-1 text-3xl font-black text-slate-950">{instances.length}</h3>
+                    </div>
+                    <div className="flex h-12 w-12 items-center justify-center rounded-md bg-slate-50 text-primary">
+                      <Smartphone size={23} />
+                    </div>
+                  </div>
+                </Card>
+                <Card className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-600">Conectadas</p>
+                      <h3 className="mt-1 text-3xl font-black text-slate-950">{connectedInstancesCount}</h3>
+                    </div>
+                    <div className="flex h-12 w-12 items-center justify-center rounded-md bg-slate-50 text-primary">
+                      <CheckCircle2 size={23} />
+                    </div>
+                  </div>
+                </Card>
+                <Card className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-600">Clientes SaaS</p>
+                      <h3 className="mt-1 text-3xl font-black text-slate-950">{clientAccounts.length}</h3>
+                    </div>
+                    <div className="flex h-12 w-12 items-center justify-center rounded-md bg-slate-50 text-primary">
+                      <Building2 size={23} />
+                    </div>
+                  </div>
+                </Card>
+              </div>
+
+              <Card className="p-6">
+                <h3 className="mb-5 text-xl font-black text-slate-950">Operacao SaaS</h3>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+                  <div className="rounded-md border border-slate-100 bg-slate-50 p-4">
+                    <p className="text-xs font-black uppercase text-slate-400">Cota de instancias</p>
+                    <p className="mt-1 text-2xl font-black text-slate-950">{usedInstanceQuota}/{instanceQuota}</p>
+                  </div>
+                  <div className="rounded-md border border-slate-100 bg-slate-50 p-4">
+                    <p className="text-xs font-black uppercase text-slate-400">Alocadas a clientes</p>
+                    <p className="mt-1 text-2xl font-black text-slate-950">{displayNumber(resellerOverview?.usage?.allocated_child_instances)}</p>
+                  </div>
+                  <div className="rounded-md border border-slate-100 bg-slate-50 p-4">
+                    <p className="text-xs font-black uppercase text-slate-400">Disponiveis</p>
+                    <p className="mt-1 text-2xl font-black text-slate-950">{availableInstances}</p>
+                  </div>
+                  <div className="rounded-md border border-slate-100 bg-slate-50 p-4">
+                    <p className="text-xs font-black uppercase text-slate-400">Integracoes</p>
+                    <p className="mt-1 text-2xl font-black text-slate-950">n8n / Chatwoot / Typebot</p>
+                  </div>
+                </div>
+              </Card>
+
+              <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+                <Card className="p-6">
+                  <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h3 className="text-xl font-black text-slate-950">Instancias do cliente</h3>
+                      <p className="text-sm text-slate-500">Crie uma instancia e leia o QR Code sem sair do painel.</p>
+                    </div>
+                    <button
+                      onClick={openCreateInstanceModal}
+                      className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-black text-white shadow-sm hover:bg-primary/90"
+                    >
+                      <Plus size={18} />
+                      Nova instancia
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                    {([
+                      ['Conectadas', connectedInstancesCount, CheckCircle2, 'text-primary'],
+                      ['Aguardando QR', pendingQrInstancesCount, QrCode, 'text-amber-600'],
+                      ['Desconectadas', disconnectedInstancesCount, Smartphone, 'text-slate-500']
+                    ] as Array<[string, number, LucideIcon, string]>).map(([label, value, Icon, tone]) => (
+                      <div key={String(label)} className="rounded-md border border-slate-100 bg-slate-50 p-4">
+                        <Icon size={19} className={String(tone)} />
+                        <p className="mt-3 text-xs font-black uppercase text-slate-400">{label}</p>
+                        <p className="mt-1 text-2xl font-black text-slate-950">{String(value)}</p>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+
+                <Card className="p-6">
+                  <h3 className="text-xl font-black text-slate-950">Proximo passo</h3>
+                  <div className="mt-5 space-y-3">
+                    {[
+                      ['1', instances.length ? 'Escolha uma instancia' : 'Crie sua primeira instancia'],
+                      ['2', 'Leia o QR Code do WhatsApp'],
+                      ['3', 'Copie a API key e configure webhooks']
+                    ].map(([step, label]) => (
+                      <div key={step} className="flex items-center gap-3 rounded-md border border-slate-100 bg-slate-50 p-3">
+                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary text-xs font-black text-white">{step}</span>
+                        <span className="text-sm font-bold text-slate-700">{label}</span>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              </div>
+            </motion.div>
+          )}
+
+          {activeTab === 'dashboard' && false && (
             <motion.div
               key="dashboard"
               initial={{ opacity: 0, y: 10 }}
@@ -6293,6 +6421,227 @@ export default function App() {
           )}
 
           {activeTab === 'whatsapp' && (
+            <motion.div
+              key="whatsapp-v2"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-6"
+            >
+              <header className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <h2 className="text-3xl font-black tracking-tight text-slate-950">Instancias API</h2>
+                  <p className="mt-1 text-base text-slate-600">Crie uma instancia, leia o QR Code e entregue API key, webhook e conectores ao cliente.</p>
+                </div>
+                <button
+                  onClick={openCreateInstanceModal}
+                  className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-primary px-5 text-sm font-black text-white shadow-sm hover:bg-primary/90"
+                >
+                  <Plus size={19} />
+                  Nova instancia
+                </button>
+              </header>
+
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+                {([
+                  ['Total', instances.length, Smartphone, 'text-primary'],
+                  ['Conectadas', connectedInstancesCount, CheckCircle2, 'text-primary'],
+                  ['Aguardando QR', pendingQrInstancesCount, QrCode, 'text-amber-600'],
+                  ['Desconectadas', disconnectedInstancesCount, XCircle, 'text-slate-500']
+                ] as Array<[string, number, LucideIcon, string]>).map(([label, value, Icon, tone]) => (
+                  <Card key={String(label)} className="p-5">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-600">{label}</p>
+                        <p className="mt-1 text-3xl font-black text-slate-950">{String(value)}</p>
+                      </div>
+                      <div className="flex h-12 w-12 items-center justify-center rounded-md bg-slate-50">
+                        <Icon size={23} className={String(tone)} />
+                      </div>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+
+              <Card className="p-5">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
+                  {[
+                    ['1', 'Criar instancia'],
+                    ['2', 'Ler QR Code'],
+                    ['3', 'Copiar API key'],
+                    ['4', 'Configurar webhook'],
+                    ['5', 'Testar envio']
+                  ].map(([step, label]) => (
+                    <div key={step} className="flex items-center gap-3 rounded-md border border-slate-100 bg-slate-50 p-3">
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary text-xs font-black text-white">{step}</span>
+                      <span className="text-xs font-black text-slate-700">{label}</span>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+
+              <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_360px]">
+                <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+                  {instances.map((inst) => {
+                    const connectedPhone = inst.phoneConnected || inst.phone_connected || inst.phone || '';
+                    const profileName = inst.profileName || inst.profile_name || '';
+                    const profilePictureUrl = inst.profilePictureUrl || inst.profile_picture_url || '';
+                    const readyToScan = isQrStatus(inst.status);
+                    const connected = isConnectedStatus(inst.status);
+                    const webhookUrl = inst.webhook?.webhooks_url || inst.webhook_endpoint || '';
+                    return (
+                      <Card key={inst.id} className="flex min-h-[360px] flex-col p-5">
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex min-w-0 items-center gap-3">
+                            <div className={cn(
+                              "flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-md",
+                              connected ? "bg-emerald-50 text-primary" : readyToScan ? "bg-amber-50 text-amber-600" : "bg-slate-50 text-slate-500"
+                            )}>
+                              {profilePictureUrl ? (
+                                <img src={profilePictureUrl} alt={profileName || inst.name} className="h-full w-full object-cover" />
+                              ) : readyToScan ? <QrCode size={24} /> : connected ? <CheckCircle2 size={24} /> : <Smartphone size={24} />}
+                            </div>
+                            <div className="min-w-0">
+                              <h3 className="truncate text-lg font-black text-slate-950">{inst.name}</h3>
+                              <p className="truncate text-xs font-semibold text-slate-500">{profileName || connectedPhone || displayEngineName(inst.engine)}</p>
+                            </div>
+                          </div>
+                          <span className={cn(
+                            "shrink-0 rounded-md px-2 py-1 text-[10px] font-black uppercase",
+                            connected ? "bg-emerald-50 text-emerald-700" :
+                            readyToScan ? "bg-amber-50 text-amber-700" :
+                            inst.status === 'connecting' ? "bg-blue-50 text-blue-700" : "bg-slate-100 text-slate-600"
+                          )}>
+                            {instanceStatusLabel(inst.status)}
+                          </span>
+                        </div>
+
+                        <div className="mt-5 grid grid-cols-2 gap-3">
+                          <div className="rounded-md border border-slate-100 bg-slate-50 p-3">
+                            <p className="text-[10px] font-black uppercase text-slate-400">Telefone</p>
+                            <p className="mt-1 truncate text-sm font-black text-slate-950">{connectedPhone ? `+${connectedPhone}` : 'Pendente'}</p>
+                          </div>
+                          <div className="rounded-md border border-slate-100 bg-slate-50 p-3">
+                            <p className="text-[10px] font-black uppercase text-slate-400">Motor</p>
+                            <p className="mt-1 truncate text-sm font-black text-slate-950">{displayEngineName(inst.engine)}</p>
+                          </div>
+                        </div>
+
+                        <div className="mt-5 flex flex-1 items-center justify-center rounded-md border border-slate-100 bg-slate-50 p-4">
+                          {readyToScan ? (
+                            <button
+                              type="button"
+                              onClick={() => setQrModalInstance(inst)}
+                              className="flex w-full flex-col items-center gap-3 rounded-md border border-emerald-200 bg-white p-4 text-center shadow-sm hover:border-primary"
+                            >
+                              {inst.qr ? (
+                                <img src={inst.qr} alt="QR Code" className="h-40 w-40" />
+                              ) : (
+                                <QrCode size={76} className="text-slate-300" />
+                              )}
+                              <span className="text-sm font-black text-primary">Abrir QR Code</span>
+                              <span className="text-xs font-semibold text-slate-500">WhatsApp &gt; Aparelhos conectados</span>
+                            </button>
+                          ) : connected ? (
+                            <div className="w-full rounded-md border border-emerald-200 bg-emerald-50 p-4">
+                              <div className="flex items-center gap-3">
+                                <CheckCircle2 size={28} className="text-primary" />
+                                <div>
+                                  <p className="text-sm font-black text-slate-950">WhatsApp conectado</p>
+                                  <p className="text-xs font-bold text-emerald-700">{connectedPhone ? `+${connectedPhone}` : 'Numero sincronizando'}</p>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="w-full text-center">
+                              <QrCode size={70} className="mx-auto text-slate-300" />
+                              <p className="mt-3 text-sm font-black text-slate-950">QR Code ainda nao gerado</p>
+                              <button
+                                onClick={() => connectInstance(inst.id)}
+                                className="mt-4 inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-black text-white hover:bg-primary/90"
+                              >
+                                <RefreshCw size={16} />
+                                Gerar QR Code
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        {webhookUrl && (
+                          <div className="mt-4 rounded-md border border-slate-100 bg-white px-3 py-2">
+                            <p className="text-[10px] font-black uppercase text-slate-400">Webhook da instancia</p>
+                            <p className="mt-1 truncate font-mono text-xs text-slate-600">{webhookUrl}</p>
+                          </div>
+                        )}
+
+                        <div className="mt-5 grid grid-cols-2 gap-2 border-t border-slate-100 pt-4 sm:grid-cols-4">
+                          <button onClick={() => copyInstanceApiKey(inst.api_key)} className="rounded-md bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-200">API key</button>
+                          <button onClick={() => copyInstanceWebhook(inst)} className="rounded-md bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-200">Webhook</button>
+                          <button onClick={() => setTesterInstance(inst)} className="rounded-md bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-100">Testar</button>
+                          {connected ? (
+                            <button onClick={() => logoutInstance(inst.id)} className="rounded-md bg-red-50 px-3 py-2 text-xs font-bold text-red-600 hover:bg-red-100">Desconectar</button>
+                          ) : (
+                            <button onClick={() => deleteInstance(inst.id)} className="rounded-md bg-slate-900 px-3 py-2 text-xs font-bold text-white hover:bg-red-600">Excluir</button>
+                          )}
+                        </div>
+                      </Card>
+                    );
+                  })}
+
+                  {instances.length === 0 && (
+                    <Card className="col-span-full flex min-h-[420px] flex-col items-center justify-center border-dashed p-8 text-center">
+                      <div className="flex h-16 w-16 items-center justify-center rounded-md bg-emerald-50 text-primary">
+                        <QrCode size={34} />
+                      </div>
+                      <h3 className="mt-5 text-xl font-black text-slate-950">Nenhuma instancia criada</h3>
+                      <p className="mt-2 max-w-md text-sm text-slate-500">Crie a primeira instancia do cliente, abra o QR Code e conecte o WhatsApp em poucos segundos.</p>
+                      <button onClick={openCreateInstanceModal} className="mt-6 inline-flex h-11 items-center justify-center gap-2 rounded-md bg-primary px-5 text-sm font-black text-white hover:bg-primary/90">
+                        <Plus size={18} />
+                        Criar primeira instancia
+                      </button>
+                    </Card>
+                  )}
+                </div>
+
+                <aside className="space-y-5">
+                  <Card className="p-5">
+                    <h3 className="text-lg font-black text-slate-950">Painel do cliente</h3>
+                    <p className="mt-1 text-sm text-slate-500">Fluxo simplificado para o cliente criar, conectar e testar a instancia.</p>
+                    <div className="mt-5 space-y-3">
+                      {[
+                        ['Criar', 'Nomeie a instancia por setor ou atendente.'],
+                        ['Conectar', 'Abra o QR Code e pareie no WhatsApp.'],
+                        ['Integrar', 'Copie API key, webhook e teste envio.']
+                      ].map(([title, text]) => (
+                        <div key={title} className="rounded-md border border-slate-100 bg-slate-50 p-3">
+                          <p className="text-sm font-black text-slate-950">{title}</p>
+                          <p className="mt-1 text-xs font-semibold text-slate-500">{text}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </Card>
+
+                  <Card className="p-5">
+                    <h3 className="text-lg font-black text-slate-950">Resumo tecnico</h3>
+                    <div className="mt-4 space-y-3">
+                      {[
+                        ['Cota', `${usedInstanceQuota}/${instanceQuota}`],
+                        ['Disponiveis', availableInstances],
+                        ['Webhooks', instanceWebhooks.length || 'Por instancia'],
+                        ['Conectores', 'n8n, Chatwoot, Typebot']
+                      ].map(([label, value]) => (
+                        <div key={label} className="flex items-center justify-between border-t border-slate-100 pt-3 first:border-t-0 first:pt-0">
+                          <span className="text-xs font-bold text-slate-500">{label}</span>
+                          <span className="max-w-[180px] truncate text-right text-xs font-black text-slate-950">{value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </Card>
+                </aside>
+              </div>
+            </motion.div>
+          )}
+
+          {activeTab === 'whatsapp' && false && (
             <motion.div
               key="whatsapp"
               initial={{ opacity: 0, y: 10 }}
