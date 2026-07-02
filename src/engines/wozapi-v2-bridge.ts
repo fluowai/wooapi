@@ -105,6 +105,8 @@ function normalizeStatus(value: string) {
   const status = String(value || "").toUpperCase();
   if (["WORKING", "CONNECTED", "RUNNING"].includes(status)) return "open";
   if (["SCAN_QR_CODE", "STARTING"].includes(status)) return "qr";
+  if (status === "PASSKEY_REQUIRED") return "passkey_required";
+  if (status === "PASSKEY_CONFIRMATION") return "passkey_confirmation";
   if (["FAILED", "STOPPED", "OFFLINE"].includes(status)) return "close";
   if (["PAIRING", "CONNECTING"].includes(status)) return "connecting";
   return String(value || "connecting").toLowerCase();

@@ -11,6 +11,7 @@ export type InstanceState =
 export type InstanceStateTrigger =
   | "start_requested"
   | "qr_required"
+  | "passkey_required"
   | "session_restored"
   | "qr_scanned"
   | "qr_expired"
@@ -29,6 +30,7 @@ const transitions: Record<InstanceState, Partial<Record<InstanceStateTrigger, In
   },
   CONNECTING: {
     qr_required: "QR_PENDING",
+    passkey_required: "QR_PENDING",
     session_restored: "ACTIVE",
     health_degraded: "DEGRADED",
     ban_confirmed: "BANNED"
@@ -68,7 +70,7 @@ export function normalizeInstanceState(status?: string | null): InstanceState {
   const value = String(status || "").toLowerCase();
   if (["created", "none", "logged_out"].includes(value)) return "CREATED";
   if (["connecting", "reconnecting"].includes(value)) return "CONNECTING";
-  if (["qr", "qr_pending", "qr_expired"].includes(value)) return "QR_PENDING";
+  if (["qr", "qr_pending", "qr_expired", "passkey_required", "passkey_confirmation"].includes(value)) return "QR_PENDING";
   if (["open", "connected", "active"].includes(value)) return "ACTIVE";
   if (["degraded", "error", "disconnected", "close"].includes(value)) return "DEGRADED";
   if (["cooldown", "paused"].includes(value)) return "COOLDOWN";

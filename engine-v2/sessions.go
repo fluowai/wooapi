@@ -28,17 +28,17 @@ type SessionInfo struct {
 }
 
 type MeInfo struct {
-	ID        string `json:"id"`
-	PushName  string `json:"pushName"`
-	JID       string `json:"jid,omitempty"`
-	LID       string `json:"lid,omitempty"`
+	ID       string `json:"id"`
+	PushName string `json:"pushName"`
+	JID      string `json:"jid,omitempty"`
+	LID      string `json:"lid,omitempty"`
 }
 
 type SessionCreateRequest struct {
-	Name    string                 `json:"name"`
-	Start   *bool                  `json:"start"`
-	Config  map[string]interface{} `json:"config,omitempty"`
-	AccountID int                  `json:"account_id,omitempty"`
+	Name      string                 `json:"name"`
+	Start     *bool                  `json:"start"`
+	Config    map[string]interface{} `json:"config,omitempty"`
+	AccountID int                    `json:"account_id,omitempty"`
 }
 
 func (e *Engine) getOrCreateDeviceStore(ctx context.Context, session string, requestedJID string) (*store.Device, error) {
@@ -390,7 +390,7 @@ func (e *Engine) doStartSession(w http.ResponseWriter, r *http.Request, session 
 
 	if client.Store.ID == nil {
 		qrChan, _ := client.GetQRChannel(context.Background())
-		firstQR := make(chan string, 1)
+		firstPairingState := make(chan map[string]interface{}, 1)
 		err = client.Connect()
 		if err != nil {
 			e.mu.Lock()
@@ -405,27 +405,48 @@ func (e *Engine) doStartSession(w http.ResponseWriter, r *http.Request, session 
 
 		go func() {
 			for evt := range qrChan {
-				if evt.Event == "code" {
+				switch evt.Event {
+				case whatsmeow.QRChannelEventCode:
 					fmt.Printf("[QR] Session %s: %s\n", session, evt.Code)
 					e.mu.Lock()
 					e.lastQR[session] = evt.Code
 					e.mu.Unlock()
 					select {
-					case firstQR <- evt.Code:
+					case firstPairingState <- map[string]interface{}{"name": session, "status": "SCAN_QR_CODE", "qr": evt.Code}:
 					default:
 					}
 					e.sendToNode(session, "qr", map[string]string{"qr": evt.Code})
 					qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, os.Stdout)
+				case whatsmeow.QRChannelEventPasskeyRequest:
+					payload := map[string]interface{}{
+						"name":      session,
+						"status":    "PASSKEY_REQUIRED",
+						"publicKey": evt.PasskeyRequest.PublicKey,
+					}
+					select {
+					case firstPairingState <- payload:
+					default:
+					}
+					e.sendToNode(session, "passkey_required", payload)
+				case whatsmeow.QRChannelEventPasskeyResponse:
+					e.sendToNode(session, "passkey_confirmation", map[string]interface{}{
+						"status":        "PASSKEY_CONFIRMATION",
+						"code":          evt.PasskeyConfirmation.Code,
+						"skipHandoffUX": evt.PasskeyConfirmation.SkipHandoffUX,
+					})
+				case whatsmeow.QRChannelEventError:
+					errMsg := ""
+					if evt.Error != nil {
+						errMsg = evt.Error.Error()
+					}
+					e.sendToNode(session, "passkey_error", map[string]interface{}{"status": "PASSKEY_ERROR", "error": errMsg})
 				}
 			}
 		}()
 
 		select {
-		case code := <-firstQR:
-			writeJSON(w, http.StatusCreated, map[string]interface{}{
-				"name":   session,
-				"status": "SCAN_QR_CODE",
-			})
+		case payload := <-firstPairingState:
+			writeJSON(w, http.StatusCreated, payload)
 			return
 		case <-time.After(20 * time.Second):
 			writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -451,6 +472,57 @@ func (e *Engine) doStartSession(w http.ResponseWriter, r *http.Request, session 
 		"name":   session,
 		"status": "CONNECTING",
 	})
+}
+
+func (e *Engine) handlePasskeyResponse(w http.ResponseWriter, r *http.Request) {
+	if !e.authorized(r) {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	session := sessionNameFromRequest(r)
+	var req struct {
+		Response types.WebAuthnResponse `json:"response"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	e.mu.Lock()
+	client, ok := e.clients[session]
+	e.mu.Unlock()
+	if !ok || client == nil {
+		writeError(w, http.StatusBadRequest, "session is not waiting for passkey")
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := client.SendPasskeyResponse(ctx, &req.Response); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "PASSKEY_RESPONSE_SENT"})
+}
+
+func (e *Engine) handlePasskeyConfirm(w http.ResponseWriter, r *http.Request) {
+	if !e.authorized(r) {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	session := sessionNameFromRequest(r)
+	e.mu.Lock()
+	client, ok := e.clients[session]
+	e.mu.Unlock()
+	if !ok || client == nil {
+		writeError(w, http.StatusBadRequest, "session is not waiting for passkey confirmation")
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := client.SendPasskeyConfirmation(ctx); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "PASSKEY_CONFIRMED"})
 }
 
 func (e *Engine) handleStopSession(w http.ResponseWriter, r *http.Request) {

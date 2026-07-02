@@ -1,0 +1,68 @@
+services:
+  wozapi-calls-gateway:
+    image: node:22-alpine
+    container_name: wozapi-calls-gateway
+    working_dir: /app
+    command: ["sh", "-c", "echo 'Gateway placeholder. Implement service in calls-pabx/gateway before running.' && sleep infinity"]
+    environment:
+      NODE_ENV: development
+      PORT: 3100
+      WOZAPI_API_URL: ${WOZAPI_API_URL:-http://wooapi:3000}
+      WOZAPI_INTERNAL_TOKEN: ${WOZAPI_INTERNAL_TOKEN:-change-this-internal-token}
+      WACALLS_URL: http://wacalls:3180
+      ASTERISK_ARI_URL: http://asterisk:8088/ari
+      ASTERISK_ARI_USER: ${ASTERISK_ARI_USER:-wozapi}
+      ASTERISK_ARI_PASSWORD: ${ASTERISK_ARI_PASSWORD:-change-this-ari-password}
+      DATABASE_URL: ${CALLS_DATABASE_URL:-}
+    ports:
+      - "127.0.0.1:3100:3100"
+    networks:
+      - wozapi_calls_internal
+    depends_on:
+      - wacalls
+      - asterisk
+    restart: unless-stopped
+
+  wacalls:
+    image: golang:1.26-alpine
+    container_name: wozapi-wacalls
+    working_dir: /src
+    command: ["sh", "-c", "echo 'Mount or build the WaCalls fork here. Keep this service internal only.' && sleep infinity"]
+    environment:
+      WACALLS_ADDR: :3180
+      WACALLS_DB: /data/wacalls.db
+      WACALLS_MAX_CALLS_PER_SESSION: ${WACALLS_MAX_CALLS_PER_SESSION:-8}
+    volumes:
+      - wacalls_data:/data
+    expose:
+      - "3180"
+    networks:
+      - wozapi_calls_internal
+    restart: unless-stopped
+
+  asterisk:
+    image: andrius/asterisk:latest
+    container_name: wozapi-asterisk
+    environment:
+      ASTERISK_ARI_USER: ${ASTERISK_ARI_USER:-wozapi}
+      ASTERISK_ARI_PASSWORD: ${ASTERISK_ARI_PASSWORD:-change-this-ari-password}
+    volumes:
+      - asterisk_data:/var/lib/asterisk
+      - asterisk_spool:/var/spool/asterisk
+      - asterisk_logs:/var/log/asterisk
+    expose:
+      - "5060"
+      - "8088"
+    networks:
+      - wozapi_calls_internal
+    restart: unless-stopped
+
+networks:
+  wozapi_calls_internal:
+    driver: bridge
+
+volumes:
+  wacalls_data:
+  asterisk_data:
+  asterisk_spool:
+  asterisk_logs:

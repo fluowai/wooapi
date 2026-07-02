@@ -563,6 +563,9 @@ const instanceStatusMap: Record<string, string> = {
   none: "logged_out",
   qr: "qr_pending",
   qr_expired: "qr_expired",
+  passkey_required: "passkey_required",
+  passkey_confirmation: "passkey_confirmation",
+  passkey_error: "error",
   open: "connected",
   close: "disconnected",
   timeout: "error"
@@ -594,6 +597,16 @@ function parseJsonList(value: any) {
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
+  }
+}
+
+function safeJsonParse(value: any, fallback: any = null) {
+  if (!value) return fallback;
+  if (typeof value === "object") return value;
+  try {
+    return JSON.parse(String(value));
+  } catch {
+    return fallback;
   }
 }
 
@@ -1129,6 +1142,8 @@ async function migrate() {
       profile_picture_url: "TEXT",
       last_qr: "TEXT",
       last_qr_at: "DATETIME",
+      passkey_json: "TEXT",
+      passkey_requested_at: "DATETIME",
       connected_at: "DATETIME",
       disconnected_at: "DATETIME",
       last_seen_at: "DATETIME",
@@ -4907,6 +4922,38 @@ async function startServer() {
     }
   });
 
+  app.post("/api/whatsapp/instances/:id/passkey/response", async (req: AccountRequest, res) => {
+    const inst = await getAccountScopedInstance(req, req.params.id, "id, account_id");
+    if (!inst) return res.status(404).json({ error: "Instancia nao encontrada" });
+    const response = req.body?.response || req.body?.credential;
+    if (!response?.id || !response?.rawId || !response?.response?.clientDataJSON) {
+      return res.status(400).json({ error: "Resposta passkey invalida" });
+    }
+    const result = await bridgeFetch(`/instances/${inst.id}/passkey/response`, {
+      method: "POST",
+      body: JSON.stringify({ account_id: inst.account_id, response })
+    });
+    await run(
+      "UPDATE instances SET status = ?, connection_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND account_id = ?",
+      ["passkey_confirmation", "passkey_confirmation", inst.id, inst.account_id]
+    );
+    res.json({ success: true, ...result });
+  });
+
+  app.post("/api/whatsapp/instances/:id/passkey/confirm", async (req: AccountRequest, res) => {
+    const inst = await getAccountScopedInstance(req, req.params.id, "id, account_id");
+    if (!inst) return res.status(404).json({ error: "Instancia nao encontrada" });
+    const result = await bridgeFetch(`/instances/${inst.id}/passkey/confirm`, {
+      method: "POST",
+      body: JSON.stringify({ account_id: inst.account_id })
+    });
+    await run(
+      "UPDATE instances SET status = ?, connection_status = ?, passkey_json = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND account_id = ?",
+      ["connecting", "connecting", inst.id, inst.account_id]
+    );
+    res.json({ success: true, ...result });
+  });
+
   app.post("/api/whatsapp/instances/:id/logout", async (req: AccountRequest, res) => {
     const inst = await getAccountScopedInstance(req, req.params.id, "id, account_id");
     if (!inst) return res.status(404).json({ error: "Instancia nao encontrada" });
@@ -7267,7 +7314,7 @@ const session = await requireV1Account(req, res);
     } else if (event === "qr") {
       const parentAccount = await get("SELECT parent_account_id FROM accounts WHERE id = ?", [numericAccountId]);
       const qrImage = await qrToImage(payload.qr);
-      await run("UPDATE instances SET status = ?, connection_status = ?, qr = ?, last_qr = ?, last_qr_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?", ["qr", "qr_pending", qrImage, qrImage, numericInstanceId]);
+      await run("UPDATE instances SET status = ?, connection_status = ?, qr = ?, last_qr = ?, last_qr_at = CURRENT_TIMESTAMP, passkey_json = NULL, passkey_requested_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?", ["qr", "qr_pending", qrImage, qrImage, numericInstanceId]);
       await logConnection(numericAccountId, numericInstanceId, "qrcode.updated", "qr_pending");
       io.to(`account:${numericAccountId}`).emit("instance.qr", { instanceId: numericInstanceId, qr: qrImage });
       if (parentAccount?.parent_account_id) io.to(`account:${parentAccount.parent_account_id}`).emit("instance.qr", { instanceId: numericInstanceId, accountId: numericAccountId, qr: qrImage });
@@ -7276,6 +7323,39 @@ const session = await requireV1Account(req, res);
       io.to(`instance:${numericInstanceId}`).emit("instance.qr", { instanceId: numericInstanceId, qr: qrImage });
       emitUazSse(numericInstanceId, "connection", { status: "connecting", qr: qrImage });
       await dispatchWebhook(numericInstanceId, "qrcode.updated", { ...payload, qr: qrImage, raw: payload.qr }).catch(() => null);
+    } else if (event === "passkey_required") {
+      const parentAccount = await get("SELECT parent_account_id FROM accounts WHERE id = ?", [numericAccountId]);
+      const passkeyPayload = {
+        publicKey: payload?.publicKey || null,
+        requestedAt: new Date().toISOString()
+      };
+      await run(
+        "UPDATE instances SET status = ?, connection_status = ?, passkey_json = ?, passkey_requested_at = CURRENT_TIMESTAMP, qr = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        ["passkey_required", "passkey_required", JSON.stringify(passkeyPayload), numericInstanceId]
+      );
+      await logConnection(numericAccountId, numericInstanceId, "passkey.required", "passkey_required");
+      const eventPayload = { instanceId: numericInstanceId, accountId: numericAccountId, passkey: passkeyPayload, status: "passkey_required" };
+      io.to(`account:${numericAccountId}`).emit("instance.passkey_required", eventPayload);
+      if (parentAccount?.parent_account_id) io.to(`account:${parentAccount.parent_account_id}`).emit("instance.passkey_required", eventPayload);
+      io.to("admin:monitor").emit("instance.passkey_required", eventPayload);
+      emitInstanceWs(numericInstanceId, "instance.passkey_required", eventPayload);
+      io.to(`instance:${numericInstanceId}`).emit("instance.passkey_required", eventPayload);
+      emitUazSse(numericInstanceId, "connection", { status: "passkey_required" });
+      await dispatchWebhook(numericInstanceId, "passkey.required", eventPayload).catch(() => null);
+    } else if (event === "passkey_confirmation") {
+      const confirmationPayload = { code: payload?.code || "", skipHandoffUX: Boolean(payload?.skipHandoffUX), status: "passkey_confirmation" };
+      await run("UPDATE instances SET status = ?, connection_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", ["passkey_confirmation", "passkey_confirmation", numericInstanceId]);
+      await logConnection(numericAccountId, numericInstanceId, "passkey.confirmation", "passkey_confirmation", confirmationPayload);
+      io.to(`account:${numericAccountId}`).emit("instance.passkey_confirmation", { instanceId: numericInstanceId, ...confirmationPayload });
+      io.to(`instance:${numericInstanceId}`).emit("instance.passkey_confirmation", { instanceId: numericInstanceId, ...confirmationPayload });
+      emitInstanceWs(numericInstanceId, "instance.passkey_confirmation", { instanceId: numericInstanceId, ...confirmationPayload });
+    } else if (event === "passkey_error") {
+      const errorPayload = { error: sanitizePublicError(payload?.error || "passkey_error"), status: "error" };
+      await run("UPDATE instances SET status = ?, connection_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", ["error", "error", numericInstanceId]);
+      await logConnection(numericAccountId, numericInstanceId, "passkey.error", "error", errorPayload);
+      io.to(`account:${numericAccountId}`).emit("instance.passkey_error", { instanceId: numericInstanceId, ...errorPayload });
+      io.to(`instance:${numericInstanceId}`).emit("instance.passkey_error", { instanceId: numericInstanceId, ...errorPayload });
+      emitInstanceWs(numericInstanceId, "instance.passkey_error", { instanceId: numericInstanceId, ...errorPayload });
     } else if (event === "receipt") {
       const status = receiptDeliveryStatus(payload?.Type ?? payload?.type);
       const ids = (payload?.MessageIDs || payload?.messageIDs || payload?.message_ids || [])

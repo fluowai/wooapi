@@ -251,6 +251,8 @@ func main() {
 	api.HandleFunc("/sessions/{session}/stop", engine.handleStopSession).Methods("POST")
 	api.HandleFunc("/sessions/{session}/logout", engine.handleLogoutSession).Methods("POST")
 	api.HandleFunc("/sessions/{session}/restart", engine.handleRestartSession).Methods("POST")
+	api.HandleFunc("/sessions/{session}/passkey/response", engine.handlePasskeyResponse).Methods("POST")
+	api.HandleFunc("/sessions/{session}/passkey/confirm", engine.handlePasskeyConfirm).Methods("POST")
 
 	api.HandleFunc("/sendText", engine.handleSendText).Methods("POST")
 	api.HandleFunc("/sendImage", engine.handleSendImage).Methods("POST")

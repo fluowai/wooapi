@@ -1,0 +1,53 @@
+{
+  "name": "Wozapi",
+  "short_name": "Wozapi",
+  "description": "Painel Wozapi para WhatsApp, automacoes, mensagens e integracoes.",
+  "id": "/",
+  "start_url": "/#dashboard",
+  "scope": "/",
+  "lang": "pt-BR",
+  "dir": "ltr",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "browser"],
+  "orientation": "portrait-primary",
+  "background_color": "#f6f8f6",
+  "theme_color": "#13C12A",
+  "categories": ["business", "productivity", "utilities"],
+  "icons": [
+    {
+      "src": "/wozapi-logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/wozapi-logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "short_name": "Dashboard",
+      "description": "Abrir visao geral da conta.",
+      "url": "/#dashboard",
+      "icons": [{ "src": "/wozapi-logo.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Mensagens",
+      "short_name": "Mensagens",
+      "description": "Abrir atendimento em tempo real.",
+      "url": "/#messages",
+      "icons": [{ "src": "/wozapi-logo.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Instancias API",
+      "short_name": "Instancias",
+      "description": "Gerenciar conexoes WhatsApp.",
+      "url": "/#whatsapp",
+      "icons": [{ "src": "/wozapi-logo.png", "sizes": "192x192" }]
+    }
+  ]
+}

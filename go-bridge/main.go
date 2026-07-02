@@ -901,7 +901,7 @@ func (b *Bridge) handleConnect(w http.ResponseWriter, r *http.Request) {
 
 	if client.Store.ID == nil {
 		qrChan, _ := client.GetQRChannel(context.Background())
-		firstQR := make(chan string, 1)
+		firstPairingState := make(chan map[string]interface{}, 1)
 		err = client.Connect()
 		if err != nil {
 			b.mu.Lock()
@@ -916,23 +916,46 @@ func (b *Bridge) handleConnect(w http.ResponseWriter, r *http.Request) {
 
 		go func() {
 			for evt := range qrChan {
-				if evt.Event == "code" {
+				switch evt.Event {
+				case whatsmeow.QRChannelEventCode:
 					fmt.Printf("[QR] Instance %d: %s\n", id, evt.Code)
 					b.mu.Lock()
 					b.lastQR[id] = evt.Code
 					b.mu.Unlock()
 					select {
-					case firstQR <- evt.Code:
+					case firstPairingState <- map[string]interface{}{"status": "qr", "qr": evt.Code}:
 					default:
 					}
 					b.sendToNode("qr", id, req.AccountId, map[string]string{"qr": evt.Code})
 					qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, os.Stdout)
+				case whatsmeow.QRChannelEventPasskeyRequest:
+					payload := map[string]interface{}{
+						"status":    "passkey_required",
+						"publicKey": evt.PasskeyRequest.PublicKey,
+					}
+					select {
+					case firstPairingState <- payload:
+					default:
+					}
+					b.sendToNode("passkey_required", id, req.AccountId, payload)
+				case whatsmeow.QRChannelEventPasskeyResponse:
+					b.sendToNode("passkey_confirmation", id, req.AccountId, map[string]interface{}{
+						"status":        "passkey_confirmation",
+						"code":          evt.PasskeyConfirmation.Code,
+						"skipHandoffUX": evt.PasskeyConfirmation.SkipHandoffUX,
+					})
+				case whatsmeow.QRChannelEventError:
+					errMsg := ""
+					if evt.Error != nil {
+						errMsg = evt.Error.Error()
+					}
+					b.sendToNode("passkey_error", id, req.AccountId, map[string]interface{}{"status": "passkey_error", "error": errMsg})
 				}
 			}
 		}()
 		select {
-		case code := <-firstQR:
-			json.NewEncoder(w).Encode(map[string]string{"status": "qr", "qr": code})
+		case payload := <-firstPairingState:
+			json.NewEncoder(w).Encode(payload)
 			return
 		case <-time.After(20 * time.Second):
 			json.NewEncoder(w).Encode(map[string]string{"status": "connecting"})
@@ -1520,6 +1543,60 @@ func (b *Bridge) handleLogout(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]bool{"success": true})
 }
 
+func (b *Bridge) handlePasskeyResponse(w http.ResponseWriter, r *http.Request) {
+	if !b.authorized(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	vars := mux.Vars(r)
+	id, _ := strconv.Atoi(vars["id"])
+	var req struct {
+		AccountID int                    `json:"account_id"`
+		Response  types.WebAuthnResponse `json:"response"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	b.mu.Lock()
+	client, ok := b.clients[id]
+	b.mu.Unlock()
+	if !ok || client == nil {
+		http.Error(w, "instance is not waiting for passkey", http.StatusBadRequest)
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := client.SendPasskeyResponse(ctx, &req.Response); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]string{"status": "passkey_response_sent"})
+}
+
+func (b *Bridge) handlePasskeyConfirm(w http.ResponseWriter, r *http.Request) {
+	if !b.authorized(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	vars := mux.Vars(r)
+	id, _ := strconv.Atoi(vars["id"])
+	b.mu.Lock()
+	client, ok := b.clients[id]
+	b.mu.Unlock()
+	if !ok || client == nil {
+		http.Error(w, "instance is not waiting for passkey confirmation", http.StatusBadRequest)
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := client.SendPasskeyConfirmation(ctx); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]string{"status": "passkey_confirmed"})
+}
+
 func (b *Bridge) authorized(r *http.Request) bool {
 	return r.Header.Get("X-Bridge-Token") == b.token
 }
@@ -1572,6 +1649,8 @@ func main() {
 	r.HandleFunc("/health", bridge.handleHealth).Methods("GET")
 	r.HandleFunc("/instances/{id}/connect", bridge.handleConnect).Methods("POST")
 	r.HandleFunc("/instances/{id}/status", bridge.handleStatus).Methods("GET")
+	r.HandleFunc("/instances/{id}/passkey/response", bridge.handlePasskeyResponse).Methods("POST")
+	r.HandleFunc("/instances/{id}/passkey/confirm", bridge.handlePasskeyConfirm).Methods("POST")
 	r.HandleFunc("/instances/{id}/send", bridge.handleSend).Methods("POST")
 	r.HandleFunc("/instances/{id}/check-recipient", bridge.handleCheckRecipient).Methods("POST")
 	r.HandleFunc("/instances/{id}/send-buttons", bridge.handleSendButtons).Methods("POST")

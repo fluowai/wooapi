@@ -44,7 +44,8 @@ import {
   Bug,
   Puzzle,
   Loader2,
-  Menu
+  Menu,
+  Download
 } from 'lucide-react';
 import InstanceTester from './components/InstanceTester';
 import IntegrationManager from './components/IntegrationManager';
@@ -78,8 +79,12 @@ interface Instance {
   id: number;
   name: string;
   engine?: 'wooapi' | 'wozapi-1' | 'wozapi-2';
-  status: 'created' | 'qr_pending' | 'connecting' | 'connected' | 'disconnected' | 'logged_out' | 'error' | 'blocked' | 'paused' | 'none' | 'qr' | 'open' | 'close' | 'reconnecting';
+  status: 'created' | 'qr_pending' | 'passkey_required' | 'passkey_confirmation' | 'connecting' | 'connected' | 'disconnected' | 'logged_out' | 'error' | 'blocked' | 'paused' | 'none' | 'qr' | 'open' | 'close' | 'reconnecting';
   qr?: string;
+  passkey?: {
+    publicKey?: any;
+    requestedAt?: string;
+  } | null;
   phone?: string;
   phoneConnected?: string;
   phone_connected?: string;
@@ -222,18 +227,58 @@ interface Campaign {
 }
 
 interface WhatsAppStatus {
-  status: 'connecting' | 'connected' | 'disconnected' | 'qr_pending' | 'logged_out' | 'open' | 'close' | 'qr' | 'none';
+  status: 'connecting' | 'connected' | 'disconnected' | 'qr_pending' | 'passkey_required' | 'passkey_confirmation' | 'logged_out' | 'open' | 'close' | 'qr' | 'none';
   qr: string | null;
 }
 
 const isConnectedStatus = (status?: string) => status === 'connected' || status === 'open';
 const isQrStatus = (status?: string) => status === 'qr_pending' || status === 'qr';
+const isPasskeyStatus = (status?: string) => status === 'passkey_required' || status === 'passkey_confirmation';
 const isDisconnectedStatus = (status?: string) => ['created', 'disconnected', 'logged_out', 'none', 'close', 'error'].includes(String(status || ''));
 const isQrImage = (qr?: string | null) => String(qr || '').startsWith('data:image/');
 const qrToDisplayImage = async (qr?: string | null) => {
   const value = String(qr || '').trim();
   if (!value || isQrImage(value)) return value;
   return QRCode.toDataURL(value, { margin: 1, width: 320 });
+};
+
+const base64UrlToBuffer = (value: string) => {
+  const base64 = String(value || '').replace(/-/g, '+').replace(/_/g, '/');
+  const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=');
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return bytes.buffer;
+};
+
+const bufferToBase64Url = (buffer: ArrayBuffer) => {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+};
+
+const preparePasskeyOptions = (publicKey: any): PublicKeyCredentialRequestOptions => ({
+  ...publicKey,
+  challenge: base64UrlToBuffer(publicKey.challenge),
+  allowCredentials: Array.isArray(publicKey.allowCredentials)
+    ? publicKey.allowCredentials.map((item: any) => ({ ...item, id: base64UrlToBuffer(item.id) }))
+    : undefined
+});
+
+const credentialToPasskeyResponse = (credential: PublicKeyCredential) => {
+  const response = credential.response as AuthenticatorAssertionResponse;
+  return {
+    id: credential.id,
+    rawId: bufferToBase64Url(credential.rawId),
+    type: credential.type,
+    response: {
+      clientDataJSON: bufferToBase64Url(response.clientDataJSON),
+      authenticatorData: bufferToBase64Url(response.authenticatorData),
+      signature: bufferToBase64Url(response.signature),
+      userHandle: response.userHandle ? bufferToBase64Url(response.userHandle) : null
+    }
+  };
 };
 const findConnectedInstance = (instances: Instance[], preferredId?: number) =>
   instances.find(inst => inst.id === preferredId && isConnectedStatus(inst.status)) ||
@@ -242,6 +287,8 @@ const findConnectedInstance = (instances: Instance[], preferredId?: number) =>
 const instanceStatusLabel = (status?: string) => {
   if (isConnectedStatus(status)) return 'Conectado';
   if (isQrStatus(status)) return 'Aguardando QR';
+  if (status === 'passkey_required') return 'Aguardando passkey';
+  if (status === 'passkey_confirmation') return 'Confirmando passkey';
   if (status === 'connecting') return 'Conectando...';
   if (status === 'reconnecting') return 'Reconectando...';
   if (status === 'blocked') return 'Bloqueada';
@@ -310,13 +357,13 @@ const SidebarItem = ({ icon: Icon, label, active, onClick, href }: { icon: any, 
       }
     }}
     className={cn(
-      "flex items-center gap-3 w-full px-4 py-3 rounded-md transition-all duration-200 cursor-pointer no-underline",
+      "flex items-center gap-3 w-full px-4 py-3 rounded-md border border-transparent transition-all duration-200 cursor-pointer no-underline",
       active
-        ? "bg-primary text-white font-semibold"
-        : "text-sidebar-item hover:bg-sidebar-item-active-bg hover:text-white"
+        ? "border-primary/20 bg-primary/10 text-sidebar-item-active font-black shadow-sm"
+        : "text-sidebar-item hover:bg-sidebar-item-active-bg hover:text-slate-950"
     )}
   >
-    <Icon size={20} />
+    <Icon size={20} className={active ? "text-primary" : "text-slate-400"} />
     <span className="text-sm">{label}</span>
   </a>
 );
@@ -2137,6 +2184,8 @@ export default function App() {
 
   const [activeTab, setActiveTab] = useState<'dashboard' | 'clients' | 'api_docs' | 'search' | 'leads' | 'agents' | 'whatsapp' | 'wooapi_monitor' | 'campaigns' | 'settings' | 'kanban' | 'messages' | 'groups' | 'agenda' | 'super_admin' | 'integrations' | 'support'>('dashboard');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
+  const [pwaStandalone, setPwaStandalone] = useState(false);
   const [settingsSubTab, setSettingsSubTab] = useState<'credentials' | 'team'>('credentials');
   const [loading, setLoading] = useState(false);
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -2193,6 +2242,7 @@ export default function App() {
   const [wsStatus, setWsStatus] = useState<WhatsAppStatus>({ status: 'none', qr: null });
   const [qrModalInstance, setQrModalInstance] = useState<Instance | null>(null);
   const [qrModalImage, setQrModalImage] = useState('');
+  const [passkeyWorking, setPasskeyWorking] = useState(false);
   const [testerInstance, setTesterInstance] = useState<Instance | null>(null);
   const [createInstanceModalOpen, setCreateInstanceModalOpen] = useState(false);
   const [newInstanceName, setNewInstanceName] = useState('');
@@ -2683,6 +2733,32 @@ export default function App() {
   }, [activeTab]);
 
   useEffect(() => {
+    const mediaQuery = window.matchMedia('(display-mode: standalone)');
+    const detectStandalone = () => {
+      setPwaStandalone(mediaQuery.matches || Boolean((window.navigator as any).standalone));
+    };
+    const handleBeforeInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event);
+    };
+    const handleInstalled = () => {
+      setInstallPrompt(null);
+      setPwaStandalone(true);
+    };
+
+    detectStandalone();
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('appinstalled', handleInstalled);
+    mediaQuery.addEventListener?.('change', detectStandalone);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('appinstalled', handleInstalled);
+      mediaQuery.removeEventListener?.('change', detectStandalone);
+    };
+  }, []);
+
+  useEffect(() => {
     if (auth && auth.user?.role !== 'super_admin' && activeTab === 'super_admin') {
       setActiveTab('dashboard');
     }
@@ -2754,7 +2830,7 @@ export default function App() {
 
       newSocket.on("instance.qr", ({ instanceId, qr }) => {
         setInstances(prev => prev.map(inst =>
-          inst.id === instanceId ? { ...inst, qr, status: 'qr_pending' } : inst
+          inst.id === instanceId ? { ...inst, qr, passkey: null, status: 'qr_pending' } : inst
         ));
         setWsStatus({ status: 'qr_pending', qr });
         // Re-open or update the QR modal even when it was closed during QR rotation
@@ -2771,6 +2847,31 @@ export default function App() {
           });
           return prev;
         });
+      });
+
+      newSocket.on("instance.passkey_required", ({ instanceId, passkey }) => {
+        setInstances(prev => prev.map(inst =>
+          inst.id === instanceId ? { ...inst, qr: undefined, passkey, status: 'passkey_required' } : inst
+        ));
+        setWsStatus({ status: 'passkey_required', qr: null });
+        setQrModalInstance(prev => {
+          if (prev?.id === instanceId) return { ...prev, qr: undefined, passkey, status: 'passkey_required' };
+          setInstances(current => {
+            const targetInst = current.find(i => i.id === instanceId);
+            if (targetInst) {
+              setTimeout(() => setQrModalInstance({ ...targetInst, qr: undefined, passkey, status: 'passkey_required' }), 0);
+            }
+            return current;
+          });
+          return prev;
+        });
+      });
+
+      newSocket.on("instance.passkey_confirmation", ({ instanceId }) => {
+        setInstances(prev => prev.map(inst =>
+          inst.id === instanceId ? { ...inst, status: 'passkey_confirmation' } : inst
+        ));
+        setQrModalInstance(prev => prev?.id === instanceId ? { ...prev, status: 'passkey_confirmation' } : prev);
       });
 
       newSocket.on("message.new", (data: any) => {
@@ -3042,6 +3143,9 @@ export default function App() {
     if (connectResult?.qr) {
       setQrModalInstance({ ...created, status: 'qr_pending', qr: connectResult.qr } as Instance);
       setInstances(prev => prev.map(inst => inst.id === data.id ? { ...inst, status: 'qr_pending', qr: connectResult.qr } : inst));
+    } else if (connectResult?.status === 'passkey_required') {
+      setQrModalInstance({ ...created, status: 'passkey_required', passkey: connectResult.passkey || { publicKey: connectResult.publicKey } } as Instance);
+      setInstances(prev => prev.map(inst => inst.id === data.id ? { ...inst, status: 'passkey_required', passkey: connectResult.passkey || { publicKey: connectResult.publicKey } } : inst));
     }
     fetchInstances();
     if (canUseResellerPanel()) fetchResellerOverview();
@@ -3099,8 +3203,57 @@ export default function App() {
         return currentInst ? { ...currentInst, status: 'qr_pending', qr: connectResult.qr } : prev;
       });
       setInstances(prev => prev.map(i => i.id === id ? { ...i, status: 'qr_pending', qr: connectResult.qr } : i));
+    } else if (connectResult?.status === 'passkey_required') {
+      const passkey = connectResult.passkey || { publicKey: connectResult.publicKey };
+      setQrModalInstance(prev => {
+        if (prev?.id === id) return { ...prev, status: 'passkey_required', qr: undefined, passkey };
+        const currentInst = instances.find(i => i.id === id);
+        return currentInst ? { ...currentInst, status: 'passkey_required', qr: undefined, passkey } : prev;
+      });
+      setInstances(prev => prev.map(i => i.id === id ? { ...i, status: 'passkey_required', qr: undefined, passkey } : i));
     }
     fetchInstances();
+  };
+
+  const authorizePasskeyInstance = async () => {
+    if (!qrModalInstance?.id || !qrModalInstance.passkey) return;
+    if (!navigator.credentials?.get) {
+      alert('Este navegador nao suporta autorizacao por passkey.');
+      return;
+    }
+
+    const publicKey = qrModalInstance.passkey.publicKey || qrModalInstance.passkey;
+    if (!publicKey?.challenge) {
+      alert('A passkey recebida esta incompleta. Gere um novo QR/passkey.');
+      return;
+    }
+
+    setPasskeyWorking(true);
+    try {
+      const credential = await navigator.credentials.get({
+        publicKey: preparePasskeyOptions(publicKey)
+      }) as PublicKeyCredential | null;
+      if (!credential) return;
+
+      await apiFetch(`/api/whatsapp/instances/${qrModalInstance.id}/passkey/response`, {
+        method: 'POST',
+        body: JSON.stringify({ response: credentialToPasskeyResponse(credential) })
+      });
+      const result = await apiFetch(`/api/whatsapp/instances/${qrModalInstance.id}/passkey/confirm`, { method: 'POST' });
+      if (result?.status && isConnectedStatus(result.status)) {
+        setQrModalInstance(null);
+        setInstances(prev => prev.map(inst => inst.id === qrModalInstance.id ? { ...inst, status: 'connected', qr: undefined, passkey: undefined } : inst));
+      } else {
+        setQrModalInstance(prev => prev ? { ...prev, status: 'passkey_confirmation' } : prev);
+        setInstances(prev => prev.map(inst => inst.id === qrModalInstance.id ? { ...inst, status: 'passkey_confirmation' } : inst));
+      }
+      fetchInstances();
+    } catch (error) {
+      console.error('Passkey authorization failed', error);
+      alert('Nao foi possivel autorizar a passkey. Tente novamente pelo aparelho que possui a chave.');
+    } finally {
+      setPasskeyWorking(false);
+    }
   };
 
   const logoutInstance = async (id: number) => {
@@ -3630,9 +3783,11 @@ export default function App() {
   const trialHoursLeft = Math.floor(trialTimeLeft / 3600000);
   const trialMinutesLeft = Math.ceil((trialTimeLeft % 3600000) / 60000);
   const isTrialAccount = auth.account?.status === 'trial';
-  const navigateToTab = (tab: typeof activeTab) => {
-    setActiveTab(tab);
-    setMobileSidebarOpen(false);
+  const installApp = async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    const choice = await installPrompt.userChoice?.catch(() => null);
+    if (!choice || choice.outcome === 'accepted') setInstallPrompt(null);
   };
 
   return (
@@ -3647,16 +3802,21 @@ export default function App() {
       )}
       {/* Sidebar */}
       <aside className={cn(
-        "fixed inset-y-0 left-0 z-40 w-[min(82vw,18rem)] bg-sidebar-bg border-r border-white/10 p-5 flex flex-col gap-6 transition-transform duration-200 lg:static lg:z-auto lg:w-64 lg:translate-x-0 lg:p-6 lg:gap-8",
+        "fixed inset-y-0 left-0 z-40 w-[min(82vw,18rem)] bg-white border-r border-slate-200 p-5 flex flex-col gap-6 shadow-2xl shadow-slate-900/10 transition-transform duration-200 lg:static lg:z-auto lg:w-64 lg:translate-x-0 lg:p-6 lg:gap-8 lg:shadow-none",
         mobileSidebarOpen ? "translate-x-0" : "-translate-x-full"
       )}>
         <div className="flex items-center gap-3 px-2">
-          <img src="/wozapi-logo.png" alt="Wozapi" className="h-9 object-contain" />
-          <h1 className="text-xl font-semibold tracking-tight text-white">Wozapi</h1>
+          <div className="flex h-11 w-11 items-center justify-center rounded-md border border-primary/20 bg-primary/10">
+            <img src="/wozapi-logo.png" alt="Wozapi" className="h-8 object-contain" />
+          </div>
+          <div>
+            <h1 className="text-xl font-black tracking-tight text-slate-950">Wozapi</h1>
+            <p className="text-[10px] font-black uppercase tracking-widest text-primary">Painel SaaS</p>
+          </div>
           <button
             type="button"
             onClick={() => setMobileSidebarOpen(false)}
-            className="ml-auto rounded-md p-2 text-white/70 hover:bg-white/10 hover:text-white lg:hidden"
+            className="ml-auto rounded-md p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-900 lg:hidden"
             aria-label="Fechar menu"
           >
             <XCircle size={22} />
@@ -3679,10 +3839,10 @@ export default function App() {
           )}
         </nav>
 
-        <div className="mt-auto pt-6 border-t border-white/10 space-y-4">
+        <div className="mt-auto space-y-4 border-t border-slate-200 pt-5">
           <div className={cn(
-            "p-4 rounded-md flex items-center gap-3",
-            isConnectedStatus(wsStatus.status) ? "bg-white/10 text-white" : "bg-white/10 text-sidebar-item"
+            "p-4 rounded-md border flex items-center gap-3",
+            isConnectedStatus(wsStatus.status) ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-slate-50 text-slate-600"
           )}>
             <div className="w-2 h-2 rounded-full bg-primary" />
             <span className="text-xs font-semibold uppercase tracking-wider">
@@ -3690,18 +3850,29 @@ export default function App() {
             </span>
           </div>
 
-          <div className="flex items-center gap-3 px-4 py-3">
-            <div className="w-8 h-8 bg-white/10 text-white rounded-md flex items-center justify-center font-bold text-xs">
+          {installPrompt && !pwaStandalone && (
+            <button
+              type="button"
+              onClick={installApp}
+              className="flex w-full items-center gap-3 rounded-md border border-primary/20 bg-primary/10 px-4 py-3 text-left text-primary transition-all hover:border-primary/40 hover:bg-primary/15"
+            >
+              <Download size={18} />
+              <span className="text-sm font-black">Instalar app</span>
+            </button>
+          )}
+
+          <div className="flex items-center gap-3 rounded-md bg-slate-50 px-4 py-3">
+            <div className="w-8 h-8 bg-primary text-white rounded-md flex items-center justify-center font-bold text-xs">
               {displayText(auth.user.name, 'U').charAt(0)}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-bold text-white truncate">{displayText(auth.user.name, 'Usuario')}</p>
-              <p className="text-[10px] text-white/50 truncate">{displayText(auth.user.email)}</p>
+              <p className="text-xs font-bold text-slate-950 truncate">{displayText(auth.user.name, 'Usuario')}</p>
+              <p className="text-[10px] text-slate-500 truncate">{displayText(auth.user.email)}</p>
             </div>
           </div>
           <button
             onClick={handleLogout}
-            className="flex items-center gap-3 w-full px-4 py-3 text-sidebar-item hover:bg-white/5 hover:text-white rounded-md transition-all"
+            className="flex items-center gap-3 w-full px-4 py-3 text-slate-500 hover:bg-slate-100 hover:text-slate-950 rounded-md transition-all"
           >
             <LogOut size={18} />
             <span className="text-sm font-medium">Sair</span>
@@ -3724,13 +3895,24 @@ export default function App() {
             <img src="/wozapi-logo.png" alt="Wozapi" className="h-7 object-contain" />
             <span className="text-sm font-black text-slate-950">Wozapi</span>
           </div>
-          <button
-            onClick={handleLogout}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100"
-            aria-label="Sair"
-          >
-            <LogOut size={20} />
-          </button>
+          <div className="flex items-center gap-1">
+            {installPrompt && !pwaStandalone && (
+              <button
+                onClick={installApp}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-md text-primary hover:bg-primary/10"
+                aria-label="Instalar app"
+              >
+                <Download size={20} />
+              </button>
+            )}
+            <button
+              onClick={handleLogout}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100"
+              aria-label="Sair"
+            >
+              <LogOut size={20} />
+            </button>
+          </div>
         </div>
         <div className={cn("min-h-0 flex-1", activeTab === 'messages' ? "overflow-hidden p-0" : "overflow-y-auto p-4 sm:p-6")}>
         {activeTab !== 'messages' && (!apiOnline || !wsOnline) && (
@@ -6455,6 +6637,14 @@ export default function App() {
                     <div className="bg-white p-4 rounded-2xl border-4 border-slate-200 shadow-inner">
                       <img src={qrModalImage} alt="QR Code" className="w-64 h-64" />
                     </div>
+                  ) : isPasskeyStatus(qrModalInstance.status) ? (
+                    <div className="w-64 h-64 bg-emerald-50 rounded-2xl border border-emerald-100 flex flex-col items-center justify-center gap-4 text-emerald-700">
+                      <KeyRound size={52} />
+                      <p className="text-sm font-bold">Passkey necessaria</p>
+                      <p className="px-6 text-center text-xs text-emerald-800">
+                        Autorize com a biometria, PIN ou chave de seguranca deste aparelho.
+                      </p>
+                    </div>
                   ) : (
                     <div className="w-64 h-64 bg-slate-50 rounded-2xl flex flex-col items-center justify-center gap-4 text-slate-400">
                       <RefreshCw className="animate-spin" size={48} />
@@ -6469,27 +6659,41 @@ export default function App() {
                     <div className="flex items-center justify-center gap-2">
                        <div className={cn(
                          "w-2 h-2 rounded-full animate-pulse",
-                         isQrStatus(qrModalInstance.status) ? "bg-amber-500" : "bg-primary"
+                         isQrStatus(qrModalInstance.status) ? "bg-amber-500" : isPasskeyStatus(qrModalInstance.status) ? "bg-emerald-500" : "bg-primary"
                        )} />
                        <p className="text-sm text-slate-500 font-medium">
-                         {isQrStatus(qrModalInstance.status) ? 'Escaneie agora' : 'Iniciando conexão...'}
+                         {isQrStatus(qrModalInstance.status) ? 'Escaneie agora' : isPasskeyStatus(qrModalInstance.status) ? 'Autorize a passkey' : 'Iniciando conexao...'}
                        </p>
                     </div>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => connectInstance(qrModalInstance.id)}
-                    className="inline-flex items-center gap-2 rounded-md bg-slate-900 px-4 py-2 text-sm font-bold text-white hover:bg-primary transition-colors"
-                  >
-                    <RefreshCw size={16} />
-                    Gerar novo QR
-                  </button>
+                  {isPasskeyStatus(qrModalInstance.status) ? (
+                    <button
+                      type="button"
+                      onClick={authorizePasskeyInstance}
+                      disabled={passkeyWorking}
+                      className="inline-flex items-center gap-2 rounded-md bg-emerald-600 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300 transition-colors"
+                    >
+                      {passkeyWorking ? <Loader2 className="animate-spin" size={16} /> : <KeyRound size={16} />}
+                      {passkeyWorking ? 'Autorizando...' : 'Autorizar passkey'}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => connectInstance(qrModalInstance.id)}
+                      className="inline-flex items-center gap-2 rounded-md bg-slate-900 px-4 py-2 text-sm font-bold text-white hover:bg-primary transition-colors"
+                    >
+                      <RefreshCw size={16} />
+                      Gerar novo QR
+                    </button>
+                  )}
                 </div>
 
                 <div className="bg-slate-50 p-4 rounded-2xl">
                    <p className="text-xs text-slate-700 font-medium leading-relaxed">
-                     Abra o WhatsApp no seu celular {'>'} Aparelhos conectados {'>'} Conectar um aparelho e aponte a câmera para o código acima.
+                     {isPasskeyStatus(qrModalInstance.status)
+                       ? 'Use o mesmo aparelho onde a passkey do WhatsApp esta disponivel. Em mobile, abra esta tela pelo navegador do celular.'
+                       : 'Abra o WhatsApp no seu celular > Aparelhos conectados > Conectar um aparelho e aponte a camera para o codigo acima.'}
                    </p>
                 </div>
               </div>

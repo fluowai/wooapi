@@ -6,7 +6,7 @@ require (
 	github.com/gorilla/mux v1.8.1
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/mdp/qrterminal/v3 v3.2.1
-	go.mau.fi/whatsmeow v0.0.0-20260622185415-5f04eac6dbbb
+	go.mau.fi/whatsmeow v0.0.0-20260630180629-b572e5bcb92b
 	google.golang.org/protobuf v1.36.11
 	modernc.org/sqlite v1.50.1
 )

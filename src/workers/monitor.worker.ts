@@ -49,6 +49,7 @@ function isConnectedStatus(status: string) {
 function publicInstanceStatus(status: string | null | undefined) {
   const s = String(status || "");
   if (["open", "connected"].includes(s)) return "connected";
+  if (s === "passkey_required" || s === "passkey_confirmation") return s;
   if (["qr", "qr_pending"].includes(s)) return "qr_pending";
   if (["connecting", "reconnecting"].includes(s)) return "connecting";
   if (s === "close" || s === "none" || s === "disconnected") return "disconnected";
@@ -102,7 +103,7 @@ async function checkInstanceHealth() {
         if (Number(failures24h) > 0 || Number(webhookFailures24h) > 0) {
           operationalStatus = "degraded";
         }
-      } else if (status === "qr_pending" || status === "connecting") {
+      } else if (status === "qr_pending" || status === "passkey_required" || status === "passkey_confirmation" || status === "connecting") {
         operationalStatus = "unstable";
       } else if (status === "disconnected" || status === "logged_out") {
         operationalStatus = "offline";
@@ -196,7 +197,7 @@ async function checkInstanceHealth() {
         }
       }
 
-      if (!connected && inst.jid && !["qr_pending", "connecting", "qr_expired"].includes(status)) {
+      if (!connected && inst.jid && !["qr_pending", "passkey_required", "passkey_confirmation", "connecting", "qr_expired"].includes(status)) {
         const lastReconnect = await get(
           "SELECT created_at FROM connection_logs WHERE instance_id = ? AND event = 'auto_reconnect' ORDER BY created_at DESC LIMIT 1",
           [inst.id]
