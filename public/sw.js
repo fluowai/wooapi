@@ -1,4 +1,4 @@
-const CACHE_NAME = 'wozapi-shell-v3';
+const CACHE_NAME = 'wozapi-shell-v4';
 const APP_SHELL = ['/', '/offline.html', '/manifest.webmanifest', '/wozapi-logo.png'];
 
 self.addEventListener('install', (event) => {

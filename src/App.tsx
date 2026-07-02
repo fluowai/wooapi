@@ -1020,6 +1020,9 @@ const SuperAdminPanel = ({ apiFetch, onImpersonate, onLogout, onBackToAccount, a
   }, 0);
   const nearLimitAccounts = accounts.filter(acc => Number(acc.usage?.instances || 0) >= Number(acc.max_instances || 999999));
   const latestAccounts = accounts.slice(0, 5);
+  const whitelabelAccounts = accounts.filter(acc => acc.account_type === 'reseller');
+  const clientFinalAccounts = accounts.filter(acc => acc.account_type === 'client');
+  const ownerAccounts = accounts.filter(acc => acc.account_type === 'owner');
   const serverStatus = failedWebhooks > 0 ? 'Requer Atencao' : 'Operacional';
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
 
@@ -1040,8 +1043,8 @@ const SuperAdminPanel = ({ apiFetch, onImpersonate, onLogout, onBackToAccount, a
 
   const navItems = [
     { id: 'dashboard', label: 'Visao Geral', icon: LayoutDashboard },
-    { id: 'Wozapi', label: 'Saude da Plataforma', icon: Activity },
-    { id: 'accounts', label: 'Clientes', icon: Building2 },
+    { id: 'Wozapi', label: 'Saude Global', icon: Activity },
+    { id: 'accounts', label: 'Whitelabels e Clientes', icon: Building2 },
     { id: 'plans', label: 'Planos', icon: CreditCard },
     { id: 'monitor', label: 'Monitoramento', icon: Activity },
     { id: 'webhooks', label: 'Webhooks', icon: Webhook },
@@ -1052,9 +1055,9 @@ const SuperAdminPanel = ({ apiFetch, onImpersonate, onLogout, onBackToAccount, a
   ] as const;
 
   const statCards = [
-    { label: 'Total de Clientes', value: formatNumber(totalAccounts), icon: Building2, tone: 'bg-blue-600', note: `${formatNumber(activeAccounts)} ativos` },
-    { label: 'Assinaturas Ativas', value: formatNumber(activeAccounts), icon: Users, tone: 'bg-emerald-500', note: `${formatNumber(overview?.resellers || 0)} revendedores` },
-    { label: 'Receita Mensal Est.', value: formatCurrency(estimatedRevenue), icon: CreditCard, tone: 'bg-violet-500', note: 'baseada nos planos' },
+    { label: 'Whitelabels', value: formatNumber(whitelabelAccounts.length), icon: Building2, tone: 'bg-emerald-600', note: `${formatNumber(clientFinalAccounts.length)} clientes finais` },
+    { label: 'Contas Ativas', value: formatNumber(activeAccounts), icon: Users, tone: 'bg-slate-900', note: `${formatNumber(totalAccounts)} contas totais` },
+    { label: 'Receita Mensal Est.', value: formatCurrency(estimatedRevenue), icon: CreditCard, tone: 'bg-primary', note: 'baseada nos planos' },
     { label: 'Status do Servidor', value: serverStatus, icon: Server, tone: failedWebhooks > 0 ? 'bg-amber-500' : 'bg-emerald-600', note: `${formatNumber(connectedInstances)}/${formatNumber(totalInstances)} instancias online` }
   ];
 
@@ -1062,16 +1065,16 @@ const SuperAdminPanel = ({ apiFetch, onImpersonate, onLogout, onBackToAccount, a
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className="min-h-[calc(100vh-2rem)] overflow-hidden rounded-md border border-slate-200 bg-slate-100 shadow-sm lg:grid lg:grid-cols-[248px_1fr]"
+      className="min-h-[calc(100vh-2rem)] overflow-hidden rounded-md border border-slate-200 bg-[#f7faf8] shadow-sm lg:grid lg:grid-cols-[272px_1fr]"
     >
-      <aside className="flex flex-col bg-[#101827] text-white">
+      <aside className="flex flex-col bg-white text-slate-900">
         <div className="flex h-20 items-center gap-3 border-b border-white/10 px-6">
-          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-red-600">
+          <div className="flex h-11 w-11 items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 text-primary">
             <ShieldCheck size={20} />
           </div>
           <div>
-            <p className="text-lg font-black text-red-400">Console Global</p>
-            <p className="text-[11px] font-semibold text-white/45">Super Admin Wozapi</p>
+            <p className="text-lg font-black text-slate-950">Mega Super Admin</p>
+            <p className="text-[11px] font-black uppercase tracking-[0.18em] text-primary">Dono da plataforma</p>
           </div>
         </div>
 
@@ -1082,35 +1085,28 @@ const SuperAdminPanel = ({ apiFetch, onImpersonate, onLogout, onBackToAccount, a
               onClick={() => setActiveSubTab(id)}
               className={cn(
                 "flex w-full items-center gap-3 rounded-md px-3 py-3 text-left text-sm font-bold transition-all",
-                activeSubTab === id ? "bg-red-600 text-white shadow-lg shadow-red-950/20" : "text-slate-300 hover:bg-white/10 hover:text-white"
+                activeSubTab === id ? "border border-emerald-200 bg-emerald-50 text-slate-950 shadow-sm" : "text-slate-500 hover:bg-slate-50 hover:text-slate-950"
               )}
             >
-              <Icon size={18} />
+              <Icon size={18} className={activeSubTab === id ? "text-primary" : "text-slate-400"} />
               {label}
             </button>
           ))}
         </nav>
 
-        <div className="border-t border-white/10 p-5">
-          {onBackToAccount && (
-            <button
-              onClick={onBackToAccount}
-              className="mb-4 flex w-full items-center gap-2 rounded-md bg-white/10 px-3 py-2 text-sm font-bold text-white transition-colors hover:bg-white/15"
-            >
-              <LayoutDashboard size={16} />
-              Voltar ao Painel da Conta
-            </button>
-          )}
+        <div className="border-t border-slate-200 p-5">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-600 text-sm font-black">S</div>
+            <div className="flex h-10 w-10 items-center justify-center rounded-md bg-primary text-sm font-black text-white">
+              {displayText(authUser?.name, 'S').charAt(0).toUpperCase()}
+            </div>
             <div className="min-w-0">
-              <p className="truncate text-sm font-black">{displayText(authUser?.name, 'Dono do Sistema')}</p>
-              <p className="truncate text-xs text-slate-400">{displayText(authUser?.email, 'super admin')}</p>
+              <p className="truncate text-sm font-black text-slate-950">{displayText(authUser?.name, 'Dono do Sistema')}</p>
+              <p className="truncate text-xs text-slate-500">{displayText(authUser?.email, 'mega admin')}</p>
             </div>
           </div>
           <button
             onClick={onLogout}
-            className="mt-5 flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-bold text-slate-300 transition-colors hover:bg-white/10 hover:text-white"
+            className="mt-5 flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-bold text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-950"
           >
             <LogOut size={16} />
             Sair
@@ -1118,11 +1114,11 @@ const SuperAdminPanel = ({ apiFetch, onImpersonate, onLogout, onBackToAccount, a
         </div>
       </aside>
 
-      <section className="min-w-0 bg-[#f4f5f7] p-5 lg:p-7">
+      <section className="min-w-0 bg-[#f7faf8] p-5 lg:p-7">
         <header className="mb-7 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <h2 className="text-2xl font-black text-slate-950">Console Global Wozapi</h2>
-            <p className="text-sm text-slate-500">Ambiente exclusivo do super admin para clientes, planos, instancias, webhooks e suporte.</p>
+            <h2 className="text-3xl font-black tracking-tight text-slate-950">Mega Super Admin Wozapi</h2>
+            <p className="mt-1 text-base text-slate-600">Controle global de whitelabels, clientes finais, planos, instancias, subdominios e suporte.</p>
           </div>
           <div className={cn("flex w-fit items-center gap-2 rounded-md px-3 py-2 text-xs font-black", failedWebhooks > 0 ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700")}>
             <span className="h-2 w-2 rounded-full bg-current" />
@@ -1148,7 +1144,42 @@ const SuperAdminPanel = ({ apiFetch, onImpersonate, onLogout, onBackToAccount, a
         </div>
 
         {activeSubTab === 'dashboard' && (
-          <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+          <div className="space-y-5">
+            <Card className="p-6">
+              <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h3 className="text-xl font-black text-slate-950">Mapa da Plataforma</h3>
+                  <p className="text-sm text-slate-500">Hierarquia operacional: voce controla whitelabels, cada whitelabel controla os clientes finais.</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setActiveSubTab('accounts');
+                    setNewAccount({ ...newAccount, account_type: 'reseller', max_client_accounts: Math.max(Number(newAccount.max_client_accounts || 0), 10) });
+                  }}
+                  className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-black text-white shadow-sm hover:bg-primary/90"
+                >
+                  <Plus size={18} />
+                  Criar whitelabel
+                </button>
+              </div>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+                {([
+                  ['Mega Super Admin', ownerAccounts.length || 1, ShieldCheck, 'Dono do sistema'],
+                  ['Whitelabels', whitelabelAccounts.length, Building2, 'Revendedores com marca propria'],
+                  ['Clientes finais', clientFinalAccounts.length, Users, 'Contas atendidas por whitelabels'],
+                  ['Subdominios', whitelabelAccounts.length, Globe2, 'Automacao por slug/domino']
+                ] as Array<[string, number, LucideIcon, string]>).map(([label, value, Icon, note]) => (
+                  <div key={String(label)} className="rounded-md border border-slate-100 bg-slate-50 p-4">
+                    <Icon size={20} className="text-primary" />
+                    <p className="mt-3 text-xs font-black uppercase text-slate-400">{String(label)}</p>
+                    <p className="mt-1 text-2xl font-black text-slate-950">{formatNumber(value)}</p>
+                    <p className="mt-2 text-xs font-semibold text-slate-500">{String(note)}</p>
+                  </div>
+                ))}
+              </div>
+            </Card>
+
+            <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
             <Card className="p-6">
               <div className="mb-5 flex items-center gap-3">
                 <Activity size={20} className="text-slate-400" />
@@ -1193,6 +1224,7 @@ const SuperAdminPanel = ({ apiFetch, onImpersonate, onLogout, onBackToAccount, a
                 </div>
               </div>
             </Card>
+            </div>
           </div>
         )}
 
