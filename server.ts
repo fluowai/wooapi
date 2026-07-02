@@ -3414,6 +3414,67 @@ async function startServer() {
     };
   }
 
+  async function getAccountUsageMap(accountIds: Array<number | string>) {
+    const ids = [...new Set(accountIds.map((id) => Number(id)).filter(Number.isFinite))];
+    if (!ids.length) return new Map<number, any>();
+    const placeholders = ids.map(() => "?").join(",");
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+    const since = monthStart.toISOString();
+    const emptyUsage = () => ({
+      instances: 0,
+      users: 0,
+      agents: 0,
+      campaigns: 0,
+      leads: 0,
+      messages: 0,
+      client_accounts: 0,
+      allocated_child_instances: 0,
+      webhook_failures: 0
+    });
+    const usageMap = new Map<number, any>(ids.map((id) => [id, emptyUsage()]));
+    const mergeCount = (rows: any[], key: string) => {
+      for (const row of rows) {
+        const usage = usageMap.get(Number(row.account_id));
+        if (usage) usage[key] = Number(row.total || 0);
+      }
+    };
+
+    const [
+      instances,
+      users,
+      agents,
+      campaigns,
+      leads,
+      messages,
+      clientAccounts,
+      childAllocations,
+      webhookFailures
+    ] = await Promise.all([
+      query(`SELECT account_id, COUNT(*) AS total FROM instances WHERE deleted_at IS NULL AND account_id IN (${placeholders}) GROUP BY account_id`, ids),
+      query(`SELECT account_id, COUNT(*) AS total FROM users WHERE account_id IN (${placeholders}) GROUP BY account_id`, ids),
+      query(`SELECT account_id, COUNT(*) AS total FROM agents WHERE account_id IN (${placeholders}) GROUP BY account_id`, ids),
+      query(`SELECT account_id, COUNT(*) AS total FROM campaigns WHERE account_id IN (${placeholders}) GROUP BY account_id`, ids),
+      query(`SELECT account_id, COUNT(*) AS total FROM leads WHERE account_id IN (${placeholders}) GROUP BY account_id`, ids),
+      query(`SELECT account_id, COUNT(*) AS total FROM messages WHERE created_at >= ? AND account_id IN (${placeholders}) GROUP BY account_id`, [since, ...ids]),
+      query(`SELECT parent_account_id AS account_id, COUNT(*) AS total FROM accounts WHERE deleted_at IS NULL AND parent_account_id IN (${placeholders}) GROUP BY parent_account_id`, ids),
+      query(`SELECT parent_account_id AS account_id, SUM(COALESCE(instance_quota, 0)) AS total FROM accounts WHERE deleted_at IS NULL AND parent_account_id IN (${placeholders}) GROUP BY parent_account_id`, ids),
+      query(`SELECT account_id, COUNT(*) AS total FROM webhook_events WHERE status = 'failed' AND created_at >= ? AND account_id IN (${placeholders}) GROUP BY account_id`, [since, ...ids])
+    ]);
+
+    mergeCount(instances, "instances");
+    mergeCount(users, "users");
+    mergeCount(agents, "agents");
+    mergeCount(campaigns, "campaigns");
+    mergeCount(leads, "leads");
+    mergeCount(messages, "messages");
+    mergeCount(clientAccounts, "client_accounts");
+    mergeCount(childAllocations, "allocated_child_instances");
+    mergeCount(webhookFailures, "webhook_failures");
+    return usageMap;
+  }
+
   async function ensureLimit(accountId: number, key: string, current: number) {
     const plan = await getAccountPlan(accountId);
     const limit = Number(plan?.[key] || 0);
@@ -3574,7 +3635,7 @@ async function startServer() {
   app.use("/api/reseller", requireAccountType(["owner", "reseller"]));
 
   app.get("/api/admin/accounts", async (req: AccountRequest, res) => {
-    const rows = await Promise.all((await query(`
+    const accountRows = await query(`
       SELECT accounts.*, plans.name AS plan_name,
         COALESCE(accounts.instance_quota, plans.max_instances) AS max_instances,
         COALESCE(accounts.max_client_accounts, plans.max_client_accounts, 0) AS max_client_accounts,
@@ -3595,7 +3656,9 @@ async function startServer() {
         GROUP BY account_id
       ) instance_counts ON instance_counts.account_id = accounts.id
       ORDER BY accounts.created_at DESC
-    `)).map(async (row) => ({ ...row, usage: await getAccountUsage(row.id) })));
+    `);
+    const usageMap = await getAccountUsageMap(accountRows.map((row) => row.id));
+    const rows = accountRows.map((row) => ({ ...row, usage: usageMap.get(Number(row.id)) || {} }));
     res.json(rows);
   });
 
@@ -3645,6 +3708,8 @@ async function startServer() {
 
   app.get("/api/admin/wooapi-monitor", async (req: AccountRequest, res) => {
     const since24h = "datetime('now','-24 hours')";
+    const detail = String(req.query.detail || req.query.mode || "full").toLowerCase();
+    const summaryOnly = ["summary", "light", "compact"].includes(detail);
     const isGlobalMonitor = req.user?.role === "super_admin";
     const accountScope = isGlobalMonitor ? "" : " AND instances.account_id = ?";
     const accountParams = isGlobalMonitor ? [] : [Number(req.accountId)];
@@ -3663,20 +3728,19 @@ async function startServer() {
       { key: "deadLetter", label: "Dead Letter", name: WOOAPI_QUEUE_DISPLAY_NAMES.deadLetter, queue: deadLetterQueue }
     ];
 
-    const queues: any[] = [];
-    for (const item of queueRefs) {
+    const queues = await Promise.all(queueRefs.map(async (item) => {
       try {
         const counts = await item.queue.getJobCounts("waiting", "active", "delayed", "failed", "completed", "paused");
-        queues.push({
+        return {
           key: item.key,
           label: item.label,
           name: item.name,
           available: true,
           ...counts,
           pending: Number(counts.waiting || 0) + Number(counts.delayed || 0)
-        });
+        };
       } catch (error) {
-        queues.push({
+        return {
           key: item.key,
           label: item.label,
           name: item.name,
@@ -3689,9 +3753,9 @@ async function startServer() {
           paused: 0,
           pending: 0,
           error: sanitizePublicError(error)
-        });
+        };
       }
-    }
+    }));
 
     const instanceRows = (await query(`
       SELECT instances.id,
@@ -3860,6 +3924,17 @@ async function startServer() {
         description: "Uma ou mais filas BullMQ nao responderam."
       }] : [])
     ];
+
+    if (summaryOnly) {
+      return publicSuccess(res, {
+        generated_at: new Date().toISOString(),
+        noc: nocSummary,
+        metrics,
+        queues,
+        instances: instanceRows,
+        alerts: syntheticAlerts.map((alert, index) => ({ id: `synthetic_${index}`, status: "open", opened_at: new Date().toISOString(), ...alert }))
+      });
+    }
 
     return publicSuccess(res, {
       generated_at: new Date().toISOString(),
@@ -4689,15 +4764,17 @@ async function startServer() {
   });
 
   app.get("/api/reseller/clients", async (req: AccountRequest, res) => {
-    const rows = await Promise.all((await query(
+    const clientRows = await query(
       `SELECT accounts.*, COUNT(DISTINCT instances.id) AS instance_count
        FROM accounts
-       LEFT JOIN instances ON instances.account_id = accounts.id
-       WHERE accounts.parent_account_id = ?
+       LEFT JOIN instances ON instances.account_id = accounts.id AND instances.deleted_at IS NULL
+       WHERE accounts.parent_account_id = ? AND accounts.deleted_at IS NULL
        GROUP BY accounts.id
        ORDER BY accounts.created_at DESC`,
       [req.accountId]
-    )).map(async (row) => ({ ...row, usage: await getAccountUsage(row.id) })));
+    );
+    const usageMap = await getAccountUsageMap(clientRows.map((row) => row.id));
+    const rows = clientRows.map((row) => ({ ...row, usage: usageMap.get(Number(row.id)) || {} }));
     res.json(rows);
   });
 
@@ -4770,7 +4847,9 @@ async function startServer() {
   });
 
   app.get("/api/whatsapp/instances", async (req: AccountRequest, res) => {
-    const rows = await query("SELECT * FROM instances WHERE account_id = ? AND deleted_at IS NULL ORDER BY id DESC", [req.accountId]);
+    const rows = req.user?.role === "super_admin"
+      ? await query("SELECT * FROM instances WHERE deleted_at IS NULL ORDER BY id DESC")
+      : await query("SELECT * FROM instances WHERE account_id = ? AND deleted_at IS NULL ORDER BY id DESC", [req.accountId]);
     const instances = await Promise.all(rows.map(async (row) => {
       return {
         ...serializeInstance(row),
@@ -4782,7 +4861,7 @@ async function startServer() {
   });
 
   app.get("/api/whatsapp/instances/:id", async (req: AccountRequest, res) => {
-    const row = await get("SELECT * FROM instances WHERE id = ? AND account_id = ? AND deleted_at IS NULL", [req.params.id, req.accountId]);
+    const row = await getAccountScopedInstance(req, req.params.id);
     if (!row) return res.status(404).json({ error: "Instancia nao encontrada" });
     const inst = await syncInstanceStatusFromBridge(row);
     res.json({
@@ -4809,16 +4888,16 @@ async function startServer() {
   });
 
   app.post("/api/whatsapp/instances/:id/connect", async (req: AccountRequest, res) => {
-    const inst = await get("SELECT * FROM instances WHERE id = ? AND account_id = ?", [req.params.id, req.accountId]);
+    const inst = await getAccountScopedInstance(req, req.params.id);
     if (!inst) return res.status(404).json({ error: "Instância não encontrada" });
     const forceNewQr = Boolean(req.body?.forceNewQr || req.body?.force_new_qr || req.body?.resetQr || req.body?.reset_qr);
     try {
-      const result = await connectInstance(Number(req.params.id), Number(req.accountId), forceNewQr);
+      const result = await connectInstance(Number(inst.id), Number(inst.account_id), forceNewQr);
       res.json({ success: true, ...result });
     } catch (error) {
       await run(
         "UPDATE instances SET status = ?, connection_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND account_id = ? AND deleted_at IS NULL",
-        ["disconnected", "disconnected", req.params.id, req.accountId]
+        ["disconnected", "disconnected", inst.id, inst.account_id]
       ).catch(() => null);
       const rawMessage = String((error as any)?.message || error || "");
       const publicMessage = /Wozapi 2\.0|Wozapi bridge|WAHA|WOZAPI_V2_UPSTREAM_URL/i.test(rawMessage)
@@ -4829,19 +4908,25 @@ async function startServer() {
   });
 
   app.post("/api/whatsapp/instances/:id/logout", async (req: AccountRequest, res) => {
-    await bridgeFetch(`/instances/${req.params.id}/logout`, { method: "POST" }).catch(() => null);
-    await run("UPDATE instances SET status = ?, connection_status = ?, qr = NULL, phone = NULL, phone_connected = NULL, jid = NULL, profile_name = NULL, profile_picture_url = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND account_id = ?", ["none", "none", req.params.id, req.accountId]);
-    io.to(`account:${req.accountId}`).emit("instance.status", { instanceId: Number(req.params.id), status: "logged_out" });
+    const inst = await getAccountScopedInstance(req, req.params.id, "id, account_id");
+    if (!inst) return res.status(404).json({ error: "Instancia nao encontrada" });
+    await bridgeFetch(`/instances/${inst.id}/logout`, { method: "POST" }).catch(() => null);
+    await run("UPDATE instances SET status = ?, connection_status = ?, qr = NULL, phone = NULL, phone_connected = NULL, jid = NULL, profile_name = NULL, profile_picture_url = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND account_id = ?", ["none", "none", inst.id, inst.account_id]);
+    io.to(`account:${inst.account_id}`).emit("instance.status", { instanceId: Number(inst.id), status: "logged_out" });
     res.json({ success: true });
   });
 
   app.delete("/api/whatsapp/instances/:id", async (req: AccountRequest, res) => {
-    await run("UPDATE instances SET deleted_at = CURRENT_TIMESTAMP, status = ?, connection_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND account_id = ?", ["disconnected", "disconnected", req.params.id, req.accountId]);
+    const inst = await getAccountScopedInstance(req, req.params.id, "id, account_id");
+    if (!inst) return res.status(404).json({ error: "Instancia nao encontrada" });
+    await run("UPDATE instances SET deleted_at = CURRENT_TIMESTAMP, status = ?, connection_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND account_id = ?", ["disconnected", "disconnected", inst.id, inst.account_id]);
     res.json({ success: true });
   });
 
   app.patch("/api/whatsapp/instances/:id/webhook", async (req: AccountRequest, res) => {
-    await run("UPDATE instances SET webhook_url = ? WHERE id = ? AND account_id = ?", [req.body.webhook_url || null, req.params.id, req.accountId]);
+    const inst = await getAccountScopedInstance(req, req.params.id, "id, account_id");
+    if (!inst) return res.status(404).json({ error: "Instancia nao encontrada" });
+    await run("UPDATE instances SET webhook_url = ? WHERE id = ? AND account_id = ?", [req.body.webhook_url || null, inst.id, inst.account_id]);
     res.json({ success: true });
   });
 
@@ -4950,29 +5035,29 @@ async function startServer() {
   });
 
   app.post("/api/whatsapp/instances/:id/api-key/regenerate", async (req: AccountRequest, res) => {
-    const inst = await get("SELECT id FROM instances WHERE id = ? AND account_id = ? AND deleted_at IS NULL", [req.params.id, req.accountId]);
+    const inst = await getAccountScopedInstance(req, req.params.id, "id, account_id");
     if (!inst) return res.status(404).json({ error: "Instância não encontrada" });
     const apiKey = randomToken("woo");
     await run("UPDATE instances SET api_key = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [apiKey, inst.id]);
-    await audit(Number(req.accountId), Number(req.user?.userId), "instance.api_key.regenerated", { instanceId: inst.id });
+    await audit(Number(inst.account_id), Number(req.user?.userId), "instance.api_key.regenerated", { instanceId: inst.id });
     res.json({ success: true, api_key: apiKey });
   });
 
   app.get("/api/whatsapp/instances/:id/live-logs", async (req: AccountRequest, res) => {
-    const inst = await get("SELECT id FROM instances WHERE id = ? AND account_id = ? AND deleted_at IS NULL", [req.params.id, req.accountId]);
+    const inst = await getAccountScopedInstance(req, req.params.id, "id, account_id");
     if (!inst) return res.status(404).json({ error: "Instancia nao encontrada" });
     const limit = Math.min(Math.max(Number(req.query.limit || 100), 1), 300);
     res.json({
-      messages: (await query("SELECT id, account_id, instance_id, message_id, direction, status, details_json, created_at FROM message_logs WHERE instance_id = ? ORDER BY id DESC LIMIT ?", [inst.id, limit])).map((row) => normalizeLogRow("message", row)),
-      connections: (await query("SELECT id, account_id, instance_id, event, status, details_json, created_at FROM connection_logs WHERE instance_id = ? ORDER BY id DESC LIMIT ?", [inst.id, limit])).map((row) => normalizeLogRow("connection", row)),
-      webhooks: (await query("SELECT id, account_id, instance_id, event, status, response_status, error, attempts, delivered_at, created_at FROM webhook_events WHERE instance_id = ? ORDER BY id DESC LIMIT ?", [inst.id, limit])).map((row) => normalizeLogRow("webhook_event", row)),
-      api: (await query("SELECT id, account_id, instance_id, method, path, status_code, error, duration_ms, created_at FROM api_request_logs WHERE instance_id = ? ORDER BY id DESC LIMIT ?", [inst.id, limit])).map((row) => normalizeLogRow("api", row)),
-      all: await getMergedLiveLogs({ accountId: Number(req.accountId), instanceId: Number(inst.id), limit })
+      messages: (await query("SELECT id, account_id, instance_id, message_id, direction, status, details_json, created_at FROM message_logs WHERE account_id = ? AND instance_id = ? ORDER BY id DESC LIMIT ?", [inst.account_id, inst.id, limit])).map((row) => normalizeLogRow("message", row)),
+      connections: (await query("SELECT id, account_id, instance_id, event, status, details_json, created_at FROM connection_logs WHERE account_id = ? AND instance_id = ? ORDER BY id DESC LIMIT ?", [inst.account_id, inst.id, limit])).map((row) => normalizeLogRow("connection", row)),
+      webhooks: (await query("SELECT id, account_id, instance_id, event, status, response_status, error, attempts, delivered_at, created_at FROM webhook_events WHERE account_id = ? AND instance_id = ? ORDER BY id DESC LIMIT ?", [inst.account_id, inst.id, limit])).map((row) => normalizeLogRow("webhook_event", row)),
+      api: (await query("SELECT id, account_id, instance_id, method, path, status_code, error, duration_ms, created_at FROM api_request_logs WHERE account_id = ? AND instance_id = ? ORDER BY id DESC LIMIT ?", [inst.account_id, inst.id, limit])).map((row) => normalizeLogRow("api", row)),
+      all: await getMergedLiveLogs({ accountId: Number(inst.account_id), instanceId: Number(inst.id), limit })
     });
   });
 
   app.get("/api/whatsapp/instances/:id/logs", async (req: AccountRequest, res) => {
-    const inst = await get("SELECT id FROM instances WHERE id = ? AND account_id = ? AND deleted_at IS NULL", [req.params.id, req.accountId]);
+    const inst = await getAccountScopedInstance(req, req.params.id, "id, account_id");
     if (!inst) return res.status(404).json({ error: "Instância não encontrada" });
     res.json({
       messages: await query("SELECT id, message_id, direction, status, details_json, created_at FROM message_logs WHERE instance_id = ? ORDER BY id DESC LIMIT 50", [inst.id]),

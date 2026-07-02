@@ -43,7 +43,8 @@ import {
   Clock,
   Bug,
   Puzzle,
-  Loader2
+  Loader2,
+  Menu
 } from 'lucide-react';
 import InstanceTester from './components/InstanceTester';
 import IntegrationManager from './components/IntegrationManager';
@@ -778,12 +779,15 @@ const SuperAdminPanel = ({ apiFetch, onImpersonate, onLogout, onBackToAccount, a
   const [newCommission, setNewCommission] = useState({ account_id: '', amount: 0, description: '', status: 'pending' });
 
   const fetchData = async () => {
-    const accs = await apiFetch('/api/admin/accounts');
-    const pls = await apiFetch('/api/admin/plans');
-    const ovw = await apiFetch('/api/admin/overview');
-    const monitor = await apiFetch('/api/admin/wooapi-monitor');
-    const integrations = await apiFetch('/api/admin/external-integrations');
-    const partnerRows = await apiFetch('/api/admin/partners');
+    const monitorDetail = ['Wozapi', 'monitor', 'webhooks', 'support'].includes(activeSubTab) ? 'full' : 'summary';
+    const [accs, pls, ovw, monitor, integrations, partnerRows] = await Promise.all([
+      apiFetch('/api/admin/accounts'),
+      apiFetch('/api/admin/plans'),
+      apiFetch('/api/admin/overview'),
+      apiFetch(`/api/admin/wooapi-monitor?detail=${monitorDetail}`),
+      apiFetch('/api/admin/external-integrations'),
+      apiFetch('/api/admin/partners')
+    ]);
     if (Array.isArray(accs)) setAccounts(accs);
     if (Array.isArray(pls)) setPlans(pls);
     if (ovw) setOverview(ovw);
@@ -802,7 +806,7 @@ const SuperAdminPanel = ({ apiFetch, onImpersonate, onLogout, onBackToAccount, a
     fetchData();
     const interval = window.setInterval(fetchData, 7000);
     return () => window.clearInterval(interval);
-  }, []);
+  }, [activeSubTab]);
 
   const createPlan = async () => {
     if (!newPlan.name) return;
@@ -2132,6 +2136,7 @@ export default function App() {
   const [authForm, setAuthForm] = useState({ companyName: '', name: '', email: '', password: '', referral_code: initialReferralCode });
 
   const [activeTab, setActiveTab] = useState<'dashboard' | 'clients' | 'api_docs' | 'search' | 'leads' | 'agents' | 'whatsapp' | 'wooapi_monitor' | 'campaigns' | 'settings' | 'kanban' | 'messages' | 'groups' | 'agenda' | 'super_admin' | 'integrations' | 'support'>('dashboard');
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [settingsSubTab, setSettingsSubTab] = useState<'credentials' | 'team'>('credentials');
   const [loading, setLoading] = useState(false);
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -2397,9 +2402,11 @@ export default function App() {
   };
 
   const fetchWozapiPanel = async (instanceId = selectedWooInstanceId) => {
-    const monitor = await apiFetch('/api/admin/wooapi-monitor');
+    const fullPanelTabs = ['wooapi_monitor', 'super_admin'];
+    const shouldLoadInstanceDetails = Boolean(instanceId && fullPanelTabs.includes(activeTab));
+    const monitor = await apiFetch(`/api/admin/wooapi-monitor?detail=${shouldLoadInstanceDetails ? 'full' : 'summary'}`);
     if (monitor) setPlatformMonitor(monitor);
-    if (!instanceId) return;
+    if (!shouldLoadInstanceDetails) return;
     if (instances.length > 0 && !instances.some((inst: any) => Number(inst.id) === Number(instanceId))) {
       setInstanceWebhooks([]);
       setWebhookLogs([]);
@@ -2672,6 +2679,7 @@ export default function App() {
     if (window.location.hash.replace('#', '') !== activeTab) {
       window.location.hash = activeTab;
     }
+    setMobileSidebarOpen(false);
   }, [activeTab]);
 
   useEffect(() => {
@@ -3622,17 +3630,40 @@ export default function App() {
   const trialHoursLeft = Math.floor(trialTimeLeft / 3600000);
   const trialMinutesLeft = Math.ceil((trialTimeLeft % 3600000) / 60000);
   const isTrialAccount = auth.account?.status === 'trial';
+  const navigateToTab = (tab: typeof activeTab) => {
+    setActiveTab(tab);
+    setMobileSidebarOpen(false);
+  };
 
   return (
-    <div className="flex h-screen bg-main-bg font-sans text-slate-900">
+    <div className="flex h-dvh overflow-hidden bg-main-bg font-sans text-slate-900">
+      {mobileSidebarOpen && (
+        <button
+          type="button"
+          aria-label="Fechar menu"
+          className="fixed inset-0 z-30 bg-slate-950/50 backdrop-blur-sm lg:hidden"
+          onClick={() => setMobileSidebarOpen(false)}
+        />
+      )}
       {/* Sidebar */}
-      <aside className="w-64 bg-sidebar-bg border-r border-white/10 p-6 flex flex-col gap-8">
+      <aside className={cn(
+        "fixed inset-y-0 left-0 z-40 w-[min(82vw,18rem)] bg-sidebar-bg border-r border-white/10 p-5 flex flex-col gap-6 transition-transform duration-200 lg:static lg:z-auto lg:w-64 lg:translate-x-0 lg:p-6 lg:gap-8",
+        mobileSidebarOpen ? "translate-x-0" : "-translate-x-full"
+      )}>
         <div className="flex items-center gap-3 px-2">
           <img src="/wozapi-logo.png" alt="Wozapi" className="h-9 object-contain" />
           <h1 className="text-xl font-semibold tracking-tight text-white">Wozapi</h1>
+          <button
+            type="button"
+            onClick={() => setMobileSidebarOpen(false)}
+            className="ml-auto rounded-md p-2 text-white/70 hover:bg-white/10 hover:text-white lg:hidden"
+            aria-label="Fechar menu"
+          >
+            <XCircle size={22} />
+          </button>
         </div>
 
-        <nav className="flex flex-col gap-2">
+        <nav className="flex flex-col gap-2 overflow-y-auto pr-1">
           <SidebarItem icon={LayoutDashboard} label="Dashboard" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} href="#dashboard" />
           <SidebarItem icon={QrCode} label="Instâncias API" active={activeTab === 'whatsapp'} onClick={() => setActiveTab('whatsapp')} href="#whatsapp" />
           <SidebarItem icon={Activity} label="Saúde da Plataforma" active={activeTab === 'wooapi_monitor'} onClick={() => setActiveTab('wooapi_monitor')} href="#wooapi_monitor" />
@@ -3679,7 +3710,29 @@ export default function App() {
       </aside>
 
       {/* Main Content */}
-      <main className={cn("flex-1 bg-main-bg", activeTab === 'messages' ? "overflow-hidden p-0" : "overflow-y-auto p-6")}>
+      <main className={cn("flex min-w-0 flex-1 flex-col bg-main-bg", activeTab === 'messages' ? "overflow-hidden" : "overflow-y-auto")}>
+        <div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4 lg:hidden">
+          <button
+            type="button"
+            onClick={() => setMobileSidebarOpen(true)}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-800"
+            aria-label="Abrir menu"
+          >
+            <Menu size={22} />
+          </button>
+          <div className="flex items-center gap-2">
+            <img src="/wozapi-logo.png" alt="Wozapi" className="h-7 object-contain" />
+            <span className="text-sm font-black text-slate-950">Wozapi</span>
+          </div>
+          <button
+            onClick={handleLogout}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100"
+            aria-label="Sair"
+          >
+            <LogOut size={20} />
+          </button>
+        </div>
+        <div className={cn("min-h-0 flex-1", activeTab === 'messages' ? "overflow-hidden p-0" : "overflow-y-auto p-4 sm:p-6")}>
         {activeTab !== 'messages' && (!apiOnline || !wsOnline) && (
           <div className="mb-5 flex flex-col gap-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 shadow-sm sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-start gap-3">
@@ -4322,7 +4375,7 @@ export default function App() {
               </div>
               <div className="grid flex-1 min-h-0 bg-main-bg xl:grid-cols-[minmax(360px,430px)_minmax(0,1fr)_minmax(310px,350px)] lg:grid-cols-[360px_minmax(0,1fr)]">
               {/* Conversations Sidebar */}
-              <div className="border-r border-slate-200 flex flex-col bg-white text-slate-900 min-w-0">
+              <div className={cn("border-r border-slate-200 flex flex-col bg-white text-slate-900 min-w-0", activeConversationId ? "hidden lg:flex" : "flex")}>
                 <div className="p-5 border-b border-slate-200 bg-white space-y-4">
                   <div className="flex items-center justify-between">
                     <div>
@@ -4476,12 +4529,20 @@ export default function App() {
               </div>
 
               {/* Chat View */}
-              <div className="flex flex-col bg-main-bg min-w-0">
+              <div className={cn("flex flex-col bg-main-bg min-w-0", activeConversationId ? "flex" : "hidden lg:flex")}>
                 {activeConversationId ? (
                   <>
                     {/* Chat Header */}
-                    <div className="px-6 py-3.5 border-b border-slate-200 bg-white flex items-center justify-between">
+                    <div className="px-4 py-3.5 border-b border-slate-200 bg-white flex items-center justify-between sm:px-6">
                       <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setActiveConversationId(null)}
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-700 lg:hidden"
+                          aria-label="Voltar para conversas"
+                        >
+                          <XCircle size={19} />
+                        </button>
                         <div className="w-10 h-10 bg-slate-100 text-slate-900 rounded-md flex items-center justify-center font-bold uppercase overflow-hidden">
                           {conversations.find(c => c.id === activeConversationId)?.contact_profile_picture_url ? (
                             <img src={sameOriginMediaUrl(conversations.find(c => c.id === activeConversationId)?.contact_profile_picture_url)} alt="" className="h-full w-full rounded-md object-cover" />
@@ -4506,7 +4567,7 @@ export default function App() {
 
                     {/* Chat Messages */}
                     <div className="flex-1 overflow-y-auto bg-main-bg">
-                      <div className="min-h-full flex flex-col justify-end px-8 py-6 space-y-4">
+                      <div className="min-h-full flex flex-col justify-end px-4 py-4 space-y-4 sm:px-8 sm:py-6">
                       <div className="mx-auto mb-2 px-4 py-1.5 rounded-full bg-white border border-slate-200 text-[11px] font-bold text-slate-500 shadow-sm">
                         Conversa sincronizada em tempo real
                       </div>
@@ -4514,7 +4575,7 @@ export default function App() {
                         <div
                           key={msg.id || msg.message_id}
                           className={cn(
-                            "flex flex-col max-w-[68%] group",
+                            "flex flex-col max-w-[86%] group sm:max-w-[68%]",
                             msg.direction === 'outbound' ? "ml-auto items-end" : "items-start"
                           )}
                         >
@@ -6231,6 +6292,7 @@ export default function App() {
             </motion.div>
           )}
         </AnimatePresence>
+        </div>
       </main>
 
       <AnimatePresence>
